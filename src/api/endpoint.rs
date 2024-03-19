@@ -1,8 +1,7 @@
 use std::fmt::{Display, Formatter};
 
-use super::response::ClientResponse;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Endpoint {
     Boards,
     Threads(String),

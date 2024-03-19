@@ -1,11 +1,12 @@
 use super::{
-    endpoint::Endpoint, error::Error, rate_limit::RateLimitedClient, response::ClientResponse,
+    endpoint::Endpoint, error::Error, rate_limit::RateLimitedClient, response::ClientResponse, cache::ClientCache,
 };
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct Client {
     http: Arc<RateLimitedClient>,
+    cache: Arc<ClientCache>,
 }
 
 /// A client for interacting with the 4chan API.
@@ -20,18 +21,19 @@ impl Client {
     pub fn new() -> Self {
         Self {
             http: Arc::new(RateLimitedClient::default()),
+            cache: Arc::new(ClientCache::new())
         }
     }
 
-    fn new_request(
+    async fn new_request(
         &self,
         endpoint: &Endpoint,
-        if_modified_since: Option<chrono::DateTime<chrono::Utc>>,
         https: bool,
     ) -> reqwest::Request {
         let mut request =
             reqwest::Request::new(reqwest::Method::GET, endpoint.url(https).parse().unwrap());
-        if let Some(time) = if_modified_since {
+        if let Some(time) = self.cache.last_called(endpoint.clone()).await {
+            println!("Setting If-Modified-Since to {}", time.to_rfc2822());
             request.headers_mut().insert(
                 reqwest::header::IF_MODIFIED_SINCE,
                 reqwest::header::HeaderValue::from_str(&time.to_rfc2822()).unwrap(),
@@ -43,13 +45,12 @@ impl Client {
     pub async fn get(
         &self,
         endpoint: &Endpoint,
-        if_modified_since: Option<chrono::DateTime<chrono::Utc>>,
         https: bool,
     ) -> Result<ClientResponse, Error> {
         self.handle_response(
             endpoint,
             self.http
-                .execute(self.new_request(endpoint, if_modified_since, https))
+                .execute(self.new_request(endpoint, https).await)
                 .await?,
         )
         .await
@@ -61,7 +62,10 @@ impl Client {
         resp: reqwest::Response,
     ) -> Result<ClientResponse, Error> {
         match resp.status() {
-            reqwest::StatusCode::OK => Ok(self.parse_response(endpoint, resp).await?),
+            reqwest::StatusCode::OK => {
+                self.cache.update_last_called(endpoint.clone()).await;
+                Ok(self.parse_response(endpoint, resp).await?)
+            },
             reqwest::StatusCode::NOT_MODIFIED => Ok(ClientResponse::NotModified),
             _ => Err(Error::Generic(format!(
                 "Received status code: {}",
@@ -105,16 +109,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_rate_limit() {
-        let endpoint = Endpoint::Boards;
+        let endpoints = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "k"].iter().map(|x| {
+            Endpoint::Threads(x.to_string())
+        });
         let client_0 = Client::new();
         let client_1 = client_0.clone();
         let client_2 = client_0.clone();
         let clients = vec![client_0, client_1, client_2];
         let now = SystemTime::now();
-        for i in 0..10 {
-            println!("Sending request {}", i);
-            let resp = clients[i % 3].get(&endpoint, None, false).await.unwrap();
-            assert!(matches!(resp, ClientResponse::Boards(_)));
+        for (i, endpoint) in endpoints.enumerate() {
+            println!("Sending request to {}", endpoint.url(false));
+            let resp = clients[i % 3].get(&endpoint, false).await.unwrap();
+            assert!(matches!(resp, ClientResponse::Threads(_)));
         }
         let elapsed = now.elapsed().unwrap().as_millis();
         assert!(elapsed >= 9000);
@@ -124,10 +130,9 @@ mod tests {
     async fn test_if_modified_since() {
         let endpoint = Endpoint::Boards;
         let client = Client::new();
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         assert!(matches!(resp, ClientResponse::Boards(_)));
-        let now = chrono::Utc::now();
-        let resp = client.get(&endpoint, Some(now), false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         assert!(matches!(resp, ClientResponse::NotModified));
     }
 
@@ -135,7 +140,7 @@ mod tests {
     async fn test_get_boards() {
         let client = Client::default();
         let endpoint = Endpoint::Boards;
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 
@@ -143,7 +148,7 @@ mod tests {
     async fn test_get_threads() {
         let client = Client::default();
         let endpoint = Endpoint::Threads("g".to_string());
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 
@@ -151,7 +156,7 @@ mod tests {
     async fn test_get_catalog() {
         let client = Client::default();
         let endpoint = Endpoint::Catalog("g".to_string());
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 
@@ -159,7 +164,7 @@ mod tests {
     async fn test_get_archive() {
         let client = Client::default();
         let endpoint = Endpoint::Archive("g".to_string());
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 
@@ -167,7 +172,7 @@ mod tests {
     async fn test_get_index() {
         let client = Client::default();
         let endpoint = Endpoint::Index("g".to_string(), 1);
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 
@@ -175,7 +180,7 @@ mod tests {
     async fn test_get_thread() {
         let client = Client::default();
         let endpoint = Endpoint::Thread("g".to_string(), 99566851);
-        let resp = client.get(&endpoint, None, false).await.unwrap();
+        let resp = client.get(&endpoint, false).await.unwrap();
         println!("{:?}", resp);
     }
 }
