@@ -1,17 +1,17 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Thread {
     pub posts: Vec<Post>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ThreadPage {
     pub page: i32,
     pub threads: Vec<Post>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Post {
     pub no: i32,
     pub sticky: Option<i32>,
@@ -42,3 +42,14 @@ pub struct Post {
     pub last_modified: Option<i64>,
 }
 
+impl PartialEq for Post {
+    fn eq(&self, other: &Self) -> bool {
+        self.no == other.no
+    }
+}
+
+impl PartialOrd for Post {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.no.partial_cmp(&other.no)
+    }
+}

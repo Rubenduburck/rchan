@@ -132,7 +132,7 @@ impl CacheInner {
     }
 
     pub fn handle_update(&mut self, endpoint: &Endpoint, response: Arc<ClientResponse>) {
-        debug!("Updating cache for {}");
+        debug!("Updating cache for {}", endpoint);
         self.last_called
             .insert(endpoint.clone(), chrono::Utc::now());
         self.last_response

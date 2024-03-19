@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Board {
     pub board: String,
     pub title: String,
@@ -22,14 +22,14 @@ pub struct Board {
     pub board_flags: Option<std::collections::HashMap<String, String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cooldowns {
     pub threads: i32,
     pub replies: i32,
     pub images: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BoardsResponse {
     pub boards: Vec<Board>,
 }

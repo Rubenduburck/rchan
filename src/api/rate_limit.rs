@@ -25,21 +25,24 @@ impl RateLimiter {
             .as_millis()
     }
 
-    fn rate_limit(&mut self) {
-        let mut now = Self::now();
+    async fn rate_limit(&mut self) {
+        let now = Self::now();
         self.timestamps = self
             .timestamps
             .iter()
             .filter(|&&t| t > now)
             .copied()
             .collect::<Vec<_>>();
+        println!("timestamps: {:?}", self.timestamps);
         if self.timestamps.len() >= self.rate_limit_per_interval {
             let sleep_duration = self.timestamps.first().unwrap() - now;
             debug!("Rate limiting: sleeping for {} ms", sleep_duration);
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_duration as u64));
-            now = Self::now();
+            println!("Rate limiting: sleeping for {} ms", sleep_duration);
+            self.timestamps.push(now + sleep_duration + self.interval_duration_ms);
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_duration as u64)).await;
+        } else {
+            self.timestamps.push(now + self.interval_duration_ms);
         }
-        self.timestamps.push(now + self.interval_duration_ms);
     }
 }
 
@@ -57,7 +60,7 @@ impl RateLimitedClient {
             let client = reqwest::Client::new();
             loop {
                 if let Some((req, tx)) = rx.recv().await {
-                    rl.rate_limit();
+                    rl.rate_limit().await;
                     let response = client.execute(req).await.unwrap();
                     tx.send(response)
                         .await
@@ -70,6 +73,7 @@ impl RateLimitedClient {
     }
 
     pub async fn get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
+        println!("getting {}", url);
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
             .send((
@@ -124,9 +128,9 @@ mod tests {
 
         let mut rate_limiter = RateLimiter::new(rate_limit_per_interval, interval_duration_ms);
         let now = SystemTime::now();
-        (0..n).for_each(|_| {
-            rate_limiter.rate_limit();
-        });
+        for _ in 0..n {
+            rate_limiter.rate_limit().await;
+        }
         println!("elapsed: {}", now.elapsed().unwrap().as_millis());
         assert!(
             now.elapsed().unwrap().as_millis()
@@ -138,17 +142,23 @@ mod tests {
     async fn test_rate_limited_http_client() {
         let rate_limit_per_interval = 1;
         let interval_duration_ms = 1000;
-        let n = 3;
+        let n = 10;
 
         let client = RateLimitedClient::new(rate_limit_per_interval, interval_duration_ms);
         let url = "http://google.com".to_string();
         let now = SystemTime::now();
+        let mut set = tokio::task::JoinSet::new();
         for _ in 0..n {
-            let response = client.get(&url).await.unwrap();
-            let status = response.status();
-            println!("status: {}", status);
-            assert!(status.is_success());
+            let client = client.clone();
+            let url = url.clone();
+            set.spawn(async move {
+                let response = client.get(&url).await.unwrap();
+                let status = response.status();
+                println!("status: {}", status);
+                assert!(status.is_success());
+            });
         }
+        while (set.join_next().await).is_some() {}
         assert!(
             now.elapsed().unwrap().as_millis()
                 >= (n - 1) / rate_limit_per_interval as u128 * interval_duration_ms
