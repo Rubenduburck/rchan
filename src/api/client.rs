@@ -1,5 +1,8 @@
+use tracing::{debug, error};
+
 use super::{
-    endpoint::Endpoint, error::Error, rate_limit::RateLimitedClient, response::ClientResponse, cache::ClientCache,
+    cache::ClientCache, endpoint::Endpoint, error::Error, rate_limit::RateLimitedClient,
+    response::ClientResponse,
 };
 use std::sync::Arc;
 
@@ -21,19 +24,14 @@ impl Client {
     pub fn new() -> Self {
         Self {
             http: Arc::new(RateLimitedClient::default()),
-            cache: Arc::new(ClientCache::new())
+            cache: Arc::new(ClientCache::new()),
         }
     }
 
-    async fn new_request(
-        &self,
-        endpoint: &Endpoint,
-        https: bool,
-    ) -> reqwest::Request {
+    async fn new_request(&self, endpoint: &Endpoint, https: bool) -> reqwest::Request {
         let mut request =
             reqwest::Request::new(reqwest::Method::GET, endpoint.url(https).parse().unwrap());
         if let Some(time) = self.cache.last_called(endpoint.clone()).await {
-            println!("Setting If-Modified-Since to {}", time.to_rfc2822());
             request.headers_mut().insert(
                 reqwest::header::IF_MODIFIED_SINCE,
                 reqwest::header::HeaderValue::from_str(&time.to_rfc2822()).unwrap(),
@@ -46,7 +44,8 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         https: bool,
-    ) -> Result<ClientResponse, Error> {
+    ) -> Result<Arc<ClientResponse>, Error> {
+        debug!("Sending request to {}", endpoint.url(https));
         self.handle_response(
             endpoint,
             self.http
@@ -60,17 +59,25 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         resp: reqwest::Response,
-    ) -> Result<ClientResponse, Error> {
+    ) -> Result<Arc<ClientResponse>, Error> {
         match resp.status() {
             reqwest::StatusCode::OK => {
-                self.cache.update_last_called(endpoint.clone()).await;
-                Ok(self.parse_response(endpoint, resp).await?)
-            },
-            reqwest::StatusCode::NOT_MODIFIED => Ok(ClientResponse::NotModified),
-            _ => Err(Error::Generic(format!(
-                "Received status code: {}",
-                resp.status()
-            ))),
+                debug!("request: {} status: OK", endpoint);
+                let parsed = Arc::new(self.parse_response(endpoint, resp).await?);
+                self.cache.update(endpoint.clone(), parsed.clone()).await;
+                Ok(parsed)
+            }
+            reqwest::StatusCode::NOT_MODIFIED => {
+                debug!("request: {} status: NOT_MODIFIED", endpoint);
+                Ok(self.cache.last_response(endpoint.clone()).await.unwrap())
+            }
+            _ => {
+                error!("request {} status: {}", endpoint, resp.status());
+                Err(Error::Generic(format!(
+                    "Received status code: {}",
+                    resp.status()
+                )))
+            }
         }
     }
 
@@ -109,9 +116,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_rate_limit() {
-        let endpoints = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "k"].iter().map(|x| {
-            Endpoint::Threads(x.to_string())
-        });
+        let endpoints = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "k"]
+            .iter()
+            .map(|x| Endpoint::Threads(x.to_string()));
         let client_0 = Client::new();
         let client_1 = client_0.clone();
         let client_2 = client_0.clone();
@@ -120,7 +127,7 @@ mod tests {
         for (i, endpoint) in endpoints.enumerate() {
             println!("Sending request to {}", endpoint.url(false));
             let resp = clients[i % 3].get(&endpoint, false).await.unwrap();
-            assert!(matches!(resp, ClientResponse::Threads(_)));
+            assert!(matches!(*resp, ClientResponse::Threads(_)));
         }
         let elapsed = now.elapsed().unwrap().as_millis();
         assert!(elapsed >= 9000);
@@ -131,9 +138,9 @@ mod tests {
         let endpoint = Endpoint::Boards;
         let client = Client::new();
         let resp = client.get(&endpoint, false).await.unwrap();
-        assert!(matches!(resp, ClientResponse::Boards(_)));
+        assert!(matches!(*resp, ClientResponse::Boards(_)));
         let resp = client.get(&endpoint, false).await.unwrap();
-        assert!(matches!(resp, ClientResponse::NotModified));
+        assert!(matches!(*resp, ClientResponse::Boards(_)));
     }
 
     #[tokio::test]

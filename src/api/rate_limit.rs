@@ -1,4 +1,5 @@
 use tokio::sync::mpsc::Sender;
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
@@ -33,9 +34,9 @@ impl RateLimiter {
             .copied()
             .collect::<Vec<_>>();
         if self.timestamps.len() >= self.rate_limit_per_interval {
-            std::thread::sleep(std::time::Duration::from_millis(
-                (self.timestamps.first().unwrap() - now) as u64,
-            ));
+            let sleep_duration = self.timestamps.first().unwrap() - now;
+            debug!("Rate limiting: sleeping for {} ms", sleep_duration);
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_duration as u64));
             now = Self::now();
         }
         self.timestamps.push(now + self.interval_duration_ms);
