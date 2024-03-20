@@ -172,7 +172,8 @@ impl BoardWorker {
     /// 1. Remove deleted threads
     /// 2. Add new threads
     /// 3. Update modified threads
-    /// 4. Return new and modified threads
+    /// 4. Sort modified threads by last_modified
+    /// 5. Return modified threads
     fn update_cache(&mut self, threads: &[Post]) -> Vec<Post> {
         debug!(
             "Updating cache for board: {}, threads: {}",
@@ -196,6 +197,7 @@ impl BoardWorker {
                 cache.last_modified = thread_last_modified;
             }
         }
+        modified_threads.sort_by(|a, b| a.last_modified.cmp(&b.last_modified));
         modified_threads
     }
 
@@ -276,7 +278,7 @@ mod tests {
         let n_posts_to_receive = 10;
         let mut n_posts_received = 0;
         while let Some(post) = rx.recv().await {
-            println!("Received post: {:?}", post);
+            info!("Received post: {:?}", post);
             n_posts_received += 1;
             if n_posts_received >= n_posts_to_receive {
                 break;

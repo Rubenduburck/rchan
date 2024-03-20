@@ -114,6 +114,7 @@ mod tests {
         assert_eq!(1, 1);
     }
 
+    #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_client_rate_limit() {
         let endpoints = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "k"]
@@ -125,7 +126,7 @@ mod tests {
         let clients = vec![client_0, client_1, client_2];
         let now = SystemTime::now();
         for (i, endpoint) in endpoints.enumerate() {
-            println!("Sending request to {}", endpoint.url(false));
+            debug!("Sending request to {}", endpoint.url(false));
             let resp = clients[i % 3].get(&endpoint, false).await.unwrap();
             assert!(matches!(*resp, ClientResponse::Threads(_)));
         }
@@ -133,7 +134,8 @@ mod tests {
         assert!(elapsed >= 9000);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_if_modified_since() {
         let endpoint = Endpoint::Boards;
         let client = Client::new();
@@ -143,51 +145,57 @@ mod tests {
         assert!(matches!(*resp, ClientResponse::Boards(_)));
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_boards() {
         let client = Client::default();
         let endpoint = Endpoint::Boards;
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_threads() {
         let client = Client::default();
         let endpoint = Endpoint::Threads("g".to_string());
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_catalog() {
         let client = Client::default();
         let endpoint = Endpoint::Catalog("g".to_string());
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_archive() {
         let client = Client::default();
         let endpoint = Endpoint::Archive("g".to_string());
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_index() {
         let client = Client::default();
         let endpoint = Endpoint::Index("g".to_string(), 1);
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 
-    #[tokio::test]
+    #[tracing_test::traced_test]
+	#[tokio::test]
     async fn test_get_thread() {
         let client = Client::default();
         let endpoint = Endpoint::Thread("g".to_string(), 99566851);
         let resp = client.get(&endpoint, false).await.unwrap();
-        println!("{:?}", resp);
+        debug!("{:?}", resp);
     }
 }

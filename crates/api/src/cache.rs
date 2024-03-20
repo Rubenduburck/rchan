@@ -154,6 +154,7 @@ mod tests {
 
     use tokio::sync::mpsc::channel;
 
+    #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_cache() {
         let endpoint = Endpoint::Boards;
@@ -179,13 +180,13 @@ mod tests {
         cache.receiver.send(last_called_request).await.unwrap();
         let response = rx.recv().await.unwrap();
         assert!(matches!(response, CacheResponse::LastCalled(_)));
-        println!("{:?}", response);
+        debug!("{:?}", response);
 
         let (tx, mut rx) = channel(1);
         let last_response_request = CacheRequest::LastResponse(endpoint.clone(), tx);
         cache.receiver.send(last_response_request).await.unwrap();
         let response = rx.recv().await.unwrap();
         assert!(matches!(response, CacheResponse::LastResponse(_)));
-        println!("{:?}", response);
+        debug!("{:?}", response);
     }
 }

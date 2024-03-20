@@ -72,7 +72,7 @@ impl Stream {
         new_posts_rx: &mut tokio::sync::mpsc::Receiver<Post>,
     ) -> Result<(), Error> {
         while let Some(post) = new_posts_rx.recv().await {
-            info!("New post: {:?}", post);
+            info!("New post: {:?}", post.no);
         }
         Ok(())
     }

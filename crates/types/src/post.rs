@@ -48,8 +48,16 @@ impl PartialEq for Post {
     }
 }
 
+impl Eq for Post {}
+
 impl PartialOrd for Post {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.no.partial_cmp(&other.no)
+        Some(self.no.cmp(&other.no))
+    }
+}
+
+impl Ord for Post {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.no.cmp(&other.no)
     }
 }

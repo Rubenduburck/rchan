@@ -1,5 +1,5 @@
 use tokio::sync::mpsc::Sender;
-use tracing::debug;
+use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
@@ -62,7 +62,7 @@ impl RateLimitedClient {
                     let response = client.execute(req).await.unwrap();
                     tx.send(response)
                         .await
-                        .map_err(|e| println!("{:?}", e))
+                        .map_err(|e| error!("{:?}", e))
                         .unwrap();
                 }
             }
@@ -71,7 +71,7 @@ impl RateLimitedClient {
     }
 
     pub async fn get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
-        println!("getting {}", url);
+        debug!("getting {}", url);
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
             .send((
@@ -79,7 +79,7 @@ impl RateLimitedClient {
                 tx,
             ))
             .await
-            .map_err(|e| println!("{:?}", e))
+            .map_err(|e| error!("{:?}", e))
             .unwrap();
         Ok(rx.recv().await.unwrap())
     }
@@ -92,7 +92,7 @@ impl RateLimitedClient {
         self.receiver
             .send((request, tx))
             .await
-            .map_err(|e| println!("{:?}", e))
+            .map_err(|e| error!("{:?}", e))
             .unwrap();
         Ok(rx.recv().await.unwrap())
     }
@@ -118,6 +118,7 @@ mod tests {
         assert!(response.status().is_success());
     }
 
+    #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_rate_limiter() {
         let rate_limit_per_interval = 1;
@@ -129,13 +130,14 @@ mod tests {
         for _ in 0..n {
             rate_limiter.rate_limit().await;
         }
-        println!("elapsed: {}", now.elapsed().unwrap().as_millis());
+        debug!("elapsed: {}", now.elapsed().unwrap().as_millis());
         assert!(
             now.elapsed().unwrap().as_millis()
                 >= (n - 1) / rate_limit_per_interval as u128 * interval_duration_ms
         );
     }
 
+    #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_rate_limited_http_client() {
         let rate_limit_per_interval = 1;
@@ -152,7 +154,7 @@ mod tests {
             set.spawn(async move {
                 let response = client.get(&url).await.unwrap();
                 let status = response.status();
-                println!("status: {}", status);
+                debug!("status: {}", status);
                 assert!(status.is_success());
             });
         }
