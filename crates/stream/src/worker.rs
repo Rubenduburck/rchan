@@ -220,7 +220,7 @@ impl BoardWorker {
         board: String,
         thread_no: i32,
     ) -> Result<Thread, Error> {
-        debug!("Fetching thread: {}{}", board, thread_no);
+        debug!("Fetching thread: {}/{}", board, thread_no);
         let endpoint = Endpoint::Thread(board, thread_no);
         match *(http.get(&endpoint, false).await?) {
             ClientResponse::Thread(ref thread) => Ok(thread.clone()),
