@@ -4,7 +4,7 @@ use crate::{
     types::post::{Post, Thread},
 };
 use std::sync::Arc;
-use tracing::info;
+use tracing::error;
 
 pub struct BoardCache {
     last_update_sec: i64,
@@ -62,7 +62,7 @@ impl BoardWorker {
         loop {
             self.update_board()
                 .await
-                .map_err(|e| println!("{:?}", e))
+                .map_err(|e| error!("{:?}", e))
                 .unwrap();
             tokio::time::sleep(tokio::time::Duration::from_millis(
                 self.board.refresh_rate_ms as u64,
@@ -75,12 +75,9 @@ impl BoardWorker {
     /// 1. Get thread numbers for threads that have been updated since the last fetch
     /// 2. Fetch each thread
     async fn update_board(&mut self) -> Result<(), Error> {
-        println!("Fetching board {}", self.board.name);
         let now = chrono::Utc::now().timestamp();
         let last_update_sec = self.cache.last_update_sec;
-        let modified_threads = self.fetch_modified_threads().await?;
-        println!("Modified threads: {:?}", modified_threads.len());
-        for thread_no in modified_threads {
+        for thread_no in self.fetch_modified_threads().await? {
             let http = self.http.clone();
             let board = self.board.name.clone();
             let new_posts_chan = self.new_posts_chan.clone();
@@ -113,7 +110,6 @@ impl BoardWorker {
     /// Fetches all threads from the board
     /// Returns a list of thread numbers for threads that have been updated since the last fetch
     async fn fetch_modified_threads(&self) -> Result<Vec<i32>, Error> {
-        println!("Fetching modified threads");
         let endpoint = Endpoint::Threads(self.board.name.clone());
         match *(self.http.get(&endpoint, false).await?) {
             ClientResponse::Threads(ref pages) => Ok(pages
@@ -139,7 +135,6 @@ impl BoardWorker {
         board: String,
         thread_no: i32,
     ) -> Result<Thread, Error> {
-        println!("Fetching thread {}", thread_no);
         let endpoint = Endpoint::Thread(board, thread_no);
         match *(http.get(&endpoint, false).await?) {
             ClientResponse::Thread(ref thread) => Ok(thread.clone()),
@@ -165,8 +160,14 @@ mod tests {
         tokio::spawn(async move {
             BoardWorker::new_and_run(client, board, tx).await;
         });
+        let n_posts_to_receive = 10;
+        let mut n_posts_received = 0;
         while let Some(post) = rx.recv().await {
             println!("Received post: {:?}", post);
+            n_posts_received += 1;
+            if n_posts_received >= n_posts_to_receive {
+                break;
+            }
         }
     }
 }

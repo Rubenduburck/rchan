@@ -9,6 +9,16 @@ pub struct BoardConfig {
     pub refresh_rate_ms: i64,
 }
 
+impl BoardConfig {
+    const DEFAULT_REFRESH_RATE_MS: i64 = 10000;
+    pub fn new(name: String, refresh_rate_ms: Option<i64>) -> BoardConfig {
+        BoardConfig {
+            name,
+            refresh_rate_ms: refresh_rate_ms.unwrap_or(Self::DEFAULT_REFRESH_RATE_MS),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub boards: Vec<BoardConfig>,
@@ -34,7 +44,11 @@ impl Stream {
         }
     }
 
-    fn start_worker(http: Arc<Client>, board: BoardConfig, new_posts_tx: tokio::sync::mpsc::Sender<Post>) {
+    fn start_worker(
+        http: Arc<Client>,
+        board: BoardConfig,
+        new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+    ) {
         info!("Starting worker for board {}", board.name);
         tokio::spawn(async move {
             worker::BoardWorker::new_and_run(http.clone(), board, new_posts_tx).await;
@@ -44,21 +58,24 @@ impl Stream {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use super::*;
     use crate::api::client::Client;
     use std::sync::Arc;
 
     #[tokio::test]
+    #[traced_test]
     async fn test_run() {
         let client = Arc::new(Client::new());
         let boards = vec![
             BoardConfig {
-                name: "test1".to_string(),
-                refresh_rate_ms: 1000,
+                name: "g".to_string(),
+                refresh_rate_ms: 10000,
             },
             BoardConfig {
-                name: "test2".to_string(),
-                refresh_rate_ms: 1000,
+                name: "v".to_string(),
+                refresh_rate_ms: 10000,
             },
         ];
         let config = Config { boards };
