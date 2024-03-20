@@ -1,7 +1,7 @@
-use rchan_types::{board::Board, post::Post};
 use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
+use rchan_types::{board::Board, post::Post};
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Debug, Clone)]
 pub struct BoardConfig {
@@ -19,6 +19,22 @@ impl BoardConfig {
     }
 }
 
+#[derive(Debug)]
+pub enum Event {
+    NewPost(Post),
+    NewThread(Post),
+}
+
+impl From<Post> for Event {
+    fn from(post: Post) -> Self {
+        if post.is_op() {
+            Event::NewThread(post)
+        } else {
+            Event::NewPost(post)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub boards: Vec<BoardConfig>,
@@ -28,14 +44,20 @@ pub struct Stream {
     cfg: Config,
     boards: Vec<Board>,
     http: Arc<Client>,
+    events_tx: tokio::sync::mpsc::Sender<Event>,
 }
 
 impl Stream {
-    pub fn new(http: Arc<Client>, cfg: Config) -> Stream {
+    pub fn new(
+        http: Arc<Client>,
+        cfg: Config,
+        events_tx: tokio::sync::mpsc::Sender<Event>,
+    ) -> Self {
         Stream {
             http,
             cfg,
             boards: vec![],
+            events_tx,
         }
     }
 
@@ -54,7 +76,13 @@ impl Stream {
             let cfg = self.get_config_for_board(&board).unwrap();
             Self::start_worker(self.http.clone(), cfg, board, new_posts_tx.clone());
         }
-        self.handle_new_posts(&mut new_posts_rx).await
+        loop {
+            tokio::select! {
+                Some(post) = new_posts_rx.recv() => {
+                    self.handle_new_posts(post).await?;
+                }
+            }
+        }
     }
 
     async fn init(&mut self) -> Result<(), Error> {
@@ -67,14 +95,11 @@ impl Stream {
         Ok(())
     }
 
-    async fn handle_new_posts(
-        &self,
-        new_posts_rx: &mut tokio::sync::mpsc::Receiver<Post>,
-    ) -> Result<(), Error> {
-        while let Some(post) = new_posts_rx.recv().await {
-            info!("New post: {:?}", post.no);
-        }
-        Ok(())
+    async fn handle_new_posts(&self, new_post: Post) -> Result<(), Error> {
+        self.events_tx
+            .send(new_post.into())
+            .await
+            .map_err(|e| Error::Generic(e.to_string()))
     }
 
     async fn get_available_boards(&self) -> Result<Vec<Board>, Error> {
@@ -93,7 +118,10 @@ impl Stream {
     ) {
         info!("Starting worker for board {}", board.board.clone());
         tokio::spawn(async move {
-            if let Err(e) = crate::worker::BoardWorker::new_and_run(http.clone(), cfg, board, new_posts_tx).await {
+            if let Err(e) =
+                crate::worker::BoardWorker::new_and_run(http.clone(), cfg, board, new_posts_tx)
+                    .await
+            {
                 error!("Error in worker: {:?}", e);
             }
         });
@@ -102,14 +130,13 @@ impl Stream {
 
 #[cfg(test)]
 mod tests {
-    use tracing_test::traced_test;
 
     use super::*;
     use rchan_api::client::Client;
     use std::sync::Arc;
 
     #[tokio::test]
-    #[traced_test]
+    #[tracing_test::traced_test]
     async fn test_run() {
         let client = Arc::new(Client::new());
         let boards = vec![
@@ -123,7 +150,13 @@ mod tests {
             },
         ];
         let config = Config { boards };
-        let mut stream = Stream::new(client, config.clone());
-        let _ = stream.run().await;
+        let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
+        let mut stream = Stream::new(client, config.clone(), events_tx);
+        tokio::spawn(async move {
+            let _ = stream.run().await;
+        });
+        while let Some(event) = events_rx.recv().await {
+            info!("Received event: {:?}", event);
+        }
     }
 }

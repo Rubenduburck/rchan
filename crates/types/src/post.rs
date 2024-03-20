@@ -42,6 +42,12 @@ pub struct Post {
     pub last_modified: Option<i64>,
 }
 
+impl Post {
+    pub fn is_op(&self) -> bool {
+        self.resto.is_none()
+    }
+}
+
 impl PartialEq for Post {
     fn eq(&self, other: &Self) -> bool {
         self.no == other.no
