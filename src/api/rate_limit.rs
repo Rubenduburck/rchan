@@ -33,11 +33,9 @@ impl RateLimiter {
             .filter(|&&t| t > now)
             .copied()
             .collect::<Vec<_>>();
-        println!("timestamps: {:?}", self.timestamps);
         if self.timestamps.len() >= self.rate_limit_per_interval {
             let sleep_duration = self.timestamps.first().unwrap() - now;
             debug!("Rate limiting: sleeping for {} ms", sleep_duration);
-            println!("Rate limiting: sleeping for {} ms", sleep_duration);
             self.timestamps.push(now + sleep_duration + self.interval_duration_ms);
             tokio::time::sleep(std::time::Duration::from_millis(sleep_duration as u64)).await;
         } else {

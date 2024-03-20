@@ -1,5 +1,6 @@
 pub mod types;
 pub mod api;
+pub mod stream;
 
 fn main() {
     println!("Hello, world!");
