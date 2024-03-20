@@ -33,3 +33,13 @@ pub struct Cooldowns {
 pub struct BoardsResponse {
     pub boards: Vec<Board>,
 }
+
+impl Board {
+    pub fn thread_limit(&self) -> i32 {
+        self.per_page * self.pages
+    }
+
+    pub fn name(&self) -> &str {
+        &self.board
+    }
+}

@@ -1,2 +1,2 @@
-pub mod stream;
+pub mod client;
 pub mod worker;
