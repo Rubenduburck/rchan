@@ -1,0 +1,9 @@
+[package]
+name = "rchan-types"
+version = "0.1.0"
+edition = "2018"
+repository = "https://github.com/rubenduburck/rchan"
+
+[dependencies]
+serde.workspace = true
+

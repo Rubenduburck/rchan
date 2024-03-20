@@ -1,8 +1,5 @@
-use crate::{
-    api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse},
-    stream::worker,
-    types::{board::Board, post::Post},
-};
+use rchan_types::{board::Board, post::Post};
+use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
 use std::sync::Arc;
 use tracing::{info, error};
 
@@ -96,7 +93,7 @@ impl Stream {
     ) {
         info!("Starting worker for board {}", board.board.clone());
         tokio::spawn(async move {
-            if let Err(e) = worker::BoardWorker::new_and_run(http.clone(), cfg, board, new_posts_tx).await {
+            if let Err(e) = crate::worker::BoardWorker::new_and_run(http.clone(), cfg, board, new_posts_tx).await {
                 error!("Error in worker: {:?}", e);
             }
         });
@@ -108,7 +105,7 @@ mod tests {
     use tracing_test::traced_test;
 
     use super::*;
-    use crate::api::client::Client;
+    use rchan_api::client::Client;
     use std::sync::Arc;
 
     #[tokio::test]

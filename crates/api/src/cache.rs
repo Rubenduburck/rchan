@@ -148,9 +148,10 @@ impl Default for CacheInner {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::board::BoardsResponse;
 
     use super::*;
+    use rchan_types::board::BoardsResponse;
+
     use tokio::sync::mpsc::channel;
 
     #[tokio::test]

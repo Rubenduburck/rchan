@@ -1,0 +1,15 @@
+[package]
+name = "rchan-api"
+version = "0.1.0"
+edition = "2018"
+repository = "https://github.com/rubenduburck/rchan"
+
+[dependencies]
+rchan-types.workspace = true
+
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+

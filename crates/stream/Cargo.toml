@@ -1,0 +1,15 @@
+[package]
+name = "rchan-stream"
+version = "0.1.0"
+edition = "2018"
+repository = "https://github.com/rubenduburck/rchan"
+
+[dependencies]
+rchan-api.workspace = true
+rchan-types.workspace = true
+
+tracing.workspace = true
+tokio.workspace = true
+tracing-test.workspace = true
+chrono.workspace = true
+futures.workspace = true

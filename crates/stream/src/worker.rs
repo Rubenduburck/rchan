@@ -1,10 +1,8 @@
 use super::client::BoardConfig;
-use crate::{
-    api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse},
-    types::{
-        board::Board,
-        post::{Post, Thread},
-    },
+use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
+use rchan_types::{
+    board::Board,
+    post::{Post, Thread},
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, error, info};
@@ -232,7 +230,8 @@ impl BoardWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{api::client::Client, types::board::Cooldowns};
+    use rchan_types::board::Cooldowns;
+    use rchan_api::client::Client;
     use std::sync::Arc;
 
     #[tracing_test::traced_test]

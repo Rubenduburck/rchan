@@ -1,6 +1,10 @@
-use crate::types::{board::BoardsResponse, post::{ThreadPage, Thread}, catalog::CatalogPage, index::Index};
-
 use super::endpoint::Endpoint;
+use rchan_types::{
+    board::BoardsResponse,
+    catalog::CatalogPage,
+    index::Index,
+    post::{Thread, ThreadPage},
+};
 
 #[derive(Debug)]
 pub enum ClientResponse {
@@ -14,7 +18,10 @@ pub enum ClientResponse {
 }
 
 impl ClientResponse {
-    pub async fn parse(endpoint: &Endpoint, resp: reqwest::Response) -> Result<Self, reqwest::Error> {
+    pub async fn parse(
+        endpoint: &Endpoint,
+        resp: reqwest::Response,
+    ) -> Result<Self, reqwest::Error> {
         match endpoint {
             Endpoint::Boards => Ok(Self::Boards(resp.json().await?)),
             Endpoint::Threads(_) => Ok(Self::Threads(resp.json().await?)),
