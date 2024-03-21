@@ -45,6 +45,7 @@ pub struct BoardWorker {
     board: Board,
     cache: BoardCache,
     new_posts_chan: tokio::sync::mpsc::Sender<Post>,
+    kill: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
 impl BoardWorker {
@@ -53,6 +54,7 @@ impl BoardWorker {
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+        kill: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> BoardWorker {
         let cache = BoardCache::new(board.thread_limit() as usize);
         BoardWorker {
@@ -61,6 +63,7 @@ impl BoardWorker {
             board,
             cache,
             new_posts_chan: new_posts_tx,
+            kill,
         }
     }
 
@@ -69,8 +72,9 @@ impl BoardWorker {
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+        kill: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> Result<(), Error> {
-        let mut worker = BoardWorker::new(http, cfg, board, new_posts_tx);
+        let mut worker = BoardWorker::new(http, cfg, board, new_posts_tx, kill);
         worker.run().await
     }
 
@@ -79,10 +83,23 @@ impl BoardWorker {
             self.update_cache(&threads);
         })
     }
-
+    
     pub async fn run(&mut self) -> Result<(), Error> {
         self.init().await?;
         loop {
+            if let Some(ref mut rx) = self.kill {
+                match rx.try_recv() {
+                    Ok(_) => {
+                        info!("Received kill signal, stopping worker: {}", self.board.name());
+                        return Ok(());
+                    },
+                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                        error!("Kill channel closed, stopping worker: {}", self.board.name());
+                        return Ok(());
+                    },
+                    _ => {}
+                }
+            }
             self.update_board()
                 .await
                 .map_err(|e| error!("{:?}", e))
@@ -271,7 +288,7 @@ mod tests {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
         tokio::spawn(async move {
-            if let Err(e) = BoardWorker::new_and_run(client, cfg, board, tx).await {
+            if let Err(e) = BoardWorker::new_and_run(client, cfg, board, tx, None).await {
                 error!("Error in worker: {:?}", e);
             }
         });
@@ -284,5 +301,49 @@ mod tests {
                 break;
             }
         }
+    }
+
+    #[tracing_test::traced_test]
+    #[tokio::test]
+    async fn test_kill() {
+        let client = Arc::new(Client::new());
+        let cfg = BoardConfig {
+            name: "pol".to_string(),
+            refresh_rate_ms: 10000,
+        };
+        let board = Board {
+            board: "g".to_string(),
+            title: "Technology".to_string(),
+            ws_board: 1,
+            per_page: 15,
+            pages: 10,
+            max_filesize: 4194304,
+            max_webm_filesize: 3145728,
+            max_comment_chars: 2000,
+            max_webm_duration: 120,
+            bump_limit: 500,
+            image_limit: 250,
+            cooldowns: Cooldowns {
+                threads: 600,
+                replies: 60,
+                images: 60,
+            },
+            meta_description: "Technology".to_string(),
+            spoilers: None,
+            custom_spoilers: None,
+            is_archived: None,
+            forced_anon: None,
+            board_flags: None,
+        };
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            if let Err(e) = BoardWorker::new_and_run(client, cfg, board, tx, Some(kill_rx)).await {
+                error!("Error in worker: {:?}", e);
+            }
+        });
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        kill_tx.send(()).unwrap();
     }
 }

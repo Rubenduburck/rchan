@@ -1,6 +1,6 @@
 use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
 use rchan_types::{board::Board, post::Post};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
 
 #[derive(Debug, Clone)]
@@ -35,71 +35,61 @@ impl From<Post> for Event {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub boards: Vec<BoardConfig>,
-}
-
 pub struct Stream {
-    cfg: Config,
     boards: Vec<Board>,
     http: Arc<Client>,
     events_tx: tokio::sync::mpsc::Sender<Event>,
+
+    kill_switches: HashMap<String, tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Stream {
     pub fn new(
         http: Arc<Client>,
-        cfg: Config,
         events_tx: tokio::sync::mpsc::Sender<Event>,
     ) -> Self {
         Stream {
             http,
-            cfg,
             boards: vec![],
             events_tx,
+            kill_switches: HashMap::new(),
         }
     }
 
-    fn get_config_for_board(&self, board: &Board) -> Option<BoardConfig> {
-        self.cfg
-            .boards
-            .iter()
-            .find(|c| c.name == board.board)
-            .cloned()
-    }
-
-    pub async fn run(&mut self) -> Result<(), Error> {
-        self.init().await?;
+    pub async fn subscribe(&mut self, cfg: BoardConfig) -> Result<(), Error> {
+        if self.kill_switches.contains_key(&cfg.name) {
+            return Err(Error::Generic("Board already subscribed".to_string()));
+        }
         let (new_posts_tx, mut new_posts_rx) = tokio::sync::mpsc::channel(100);
-        for board in self.boards.clone() {
-            let cfg = self.get_config_for_board(&board).unwrap();
-            Self::start_worker(self.http.clone(), cfg, board, new_posts_tx.clone());
-        }
-        loop {
-            tokio::select! {
-                Some(post) = new_posts_rx.recv() => {
-                    self.handle_new_posts(post).await?;
+        let board_name = cfg.name.clone();
+        let board_data = self.get_board_data(&board_name).await?;
+        let kill_worker = Self::start_worker(self.http.clone(), cfg, board_data, new_posts_tx);
+        let events_tx = self.events_tx.clone();
+        self.kill_switches.insert(board_name, kill_worker);
+        tokio::spawn(async move {
+            while let Some(new_post) = new_posts_rx.recv().await {
+                let event = Event::from(new_post);
+                if let Err(e) = events_tx.send(event).await {
+                    error!("Error sending event: {:?}", e);
                 }
             }
-        }
-    }
-
-    async fn init(&mut self) -> Result<(), Error> {
-        self.boards = self
-            .get_available_boards()
-            .await?
-            .into_iter()
-            .filter(|b| self.cfg.boards.iter().any(|c| c.name == b.board))
-            .collect();
+        });
         Ok(())
     }
 
-    async fn handle_new_posts(&self, new_post: Post) -> Result<(), Error> {
-        self.events_tx
-            .send(new_post.into())
-            .await
-            .map_err(|e| Error::Generic(e.to_string()))
+    pub fn unsubscribe(&mut self, board: &str) {
+        self.kill_worker(board);
+    }
+
+    async fn get_board_data(&mut self, board: &str) -> Result<Board, Error> {
+        if self.boards.is_empty() {
+            self.boards = self.get_available_boards().await?;
+        }
+        if let Some(board) = self.boards.iter().find(|b| b.board == board) {
+            Ok(board.clone())
+        } else {
+            Err(Error::Generic("Board not found".to_string()))
+        }
     }
 
     async fn get_available_boards(&self) -> Result<Vec<Board>, Error> {
@@ -110,21 +100,34 @@ impl Stream {
         }
     }
 
+    pub fn kill_worker(&mut self, board: &str) {
+        if let Some(kill_switch) = self.kill_switches.remove(board) {
+            let _ = kill_switch.send(());
+        }
+    }
+
     fn start_worker(
         http: Arc<Client>,
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
-    ) {
+    ) -> tokio::sync::oneshot::Sender<()> {
         info!("Starting worker for board {}", board.board.clone());
+        let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            if let Err(e) =
-                crate::worker::BoardWorker::new_and_run(http.clone(), cfg, board, new_posts_tx)
-                    .await
+            if let Err(e) = crate::worker::BoardWorker::new_and_run(
+                http.clone(),
+                cfg,
+                board,
+                new_posts_tx,
+                Some(kill_rx),
+            )
+            .await
             {
                 error!("Error in worker: {:?}", e);
             }
         });
+        kill_tx
     }
 }
 
@@ -137,26 +140,15 @@ mod tests {
 
     #[tokio::test]
     #[tracing_test::traced_test]
-    async fn test_run() {
+    async fn test_subscribe() {
         let client = Arc::new(Client::new());
-        let boards = vec![
-            BoardConfig {
-                name: "g".to_string(),
-                refresh_rate_ms: 10000,
-            },
-            BoardConfig {
-                name: "v".to_string(),
-                refresh_rate_ms: 10000,
-            },
-        ];
-        let config = Config { boards };
+        let cfg = BoardConfig::new("g".to_string(), Some(10000));
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
-        let mut stream = Stream::new(client, config.clone(), events_tx);
-        tokio::spawn(async move {
-            let _ = stream.run().await;
-        });
+        let mut stream = Stream::new(client, events_tx);
+        stream.subscribe(cfg).await.unwrap();
         while let Some(event) = events_rx.recv().await {
             info!("Received event: {:?}", event);
         }
     }
+
 }
