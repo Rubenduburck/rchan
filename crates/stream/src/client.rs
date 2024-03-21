@@ -1,7 +1,8 @@
-use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
+use rchan_api::{client::Client, endpoint::Endpoint, response::ClientResponse};
 use rchan_types::{board::Board, post::Post};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
+use super::error::Error;
 
 #[derive(Debug, Clone)]
 pub struct BoardConfig {
@@ -58,7 +59,7 @@ impl Stream {
 
     pub async fn subscribe(&mut self, cfg: BoardConfig) -> Result<(), Error> {
         if self.kill_switches.contains_key(&cfg.name) {
-            return Err(Error::Generic("Board already subscribed".to_string()));
+            return Err(Error::AlreadySubscribed("Board already subscribed".to_string()));
         }
         let (new_posts_tx, mut new_posts_rx) = tokio::sync::mpsc::channel(100);
         let board_name = cfg.name.clone();
@@ -88,7 +89,7 @@ impl Stream {
         if let Some(board) = self.boards.iter().find(|b| b.board == board) {
             Ok(board.clone())
         } else {
-            Err(Error::Generic("Board not found".to_string()))
+            Err(Error::BoardNotFound("Board not found".to_string()))
         }
     }
 
@@ -96,7 +97,7 @@ impl Stream {
         let endpoint = Endpoint::Boards;
         match *(self.http.get(&endpoint, false).await?) {
             ClientResponse::Boards(ref resp) => Ok(resp.boards.clone()),
-            _ => Err(Error::Generic("Invalid response".to_string())),
+            _ => Err(Error::InvalidResponse),
         }
     }
 

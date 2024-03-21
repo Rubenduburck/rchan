@@ -83,20 +83,26 @@ impl BoardWorker {
             self.update_cache(&threads);
         })
     }
-    
+
     pub async fn run(&mut self) -> Result<(), Error> {
         self.init().await?;
         loop {
             if let Some(ref mut rx) = self.kill {
                 match rx.try_recv() {
                     Ok(_) => {
-                        info!("Received kill signal, stopping worker: {}", self.board.name());
+                        info!(
+                            "Received kill signal, stopping worker: {}",
+                            self.board.name()
+                        );
                         return Ok(());
-                    },
+                    }
                     Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                        error!("Kill channel closed, stopping worker: {}", self.board.name());
+                        error!(
+                            "Kill channel closed, stopping worker: {}",
+                            self.board.name()
+                        );
                         return Ok(());
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -221,13 +227,16 @@ impl BoardWorker {
     /// Fetch partial thread information from the external API
     async fn fetch_threads(&self) -> Result<Vec<Post>, Error> {
         debug!("Fetching threads for board: {}", self.board.name());
-        let endpoint = Endpoint::Threads(self.board.name().to_string());
-        match *(self.http.get(&endpoint, false).await?) {
+        match *(self
+            .http
+            .get(&Endpoint::Threads(self.board.name().to_string()), false)
+            .await?)
+        {
             ClientResponse::Threads(ref pages) => Ok(pages
                 .iter()
                 .flat_map(|page| page.threads.clone())
                 .collect::<Vec<_>>()),
-            _ => Err(Error::Generic("Invalid response".to_string())),
+            _ => Err(Error::InvalidResponse)
         }
     }
 
@@ -238,10 +247,9 @@ impl BoardWorker {
         thread_no: i32,
     ) -> Result<Thread, Error> {
         debug!("Fetching thread: {}/{}", board, thread_no);
-        let endpoint = Endpoint::Thread(board, thread_no);
-        match *(http.get(&endpoint, false).await?) {
+        match *(http.get(&Endpoint::Thread(board, thread_no), false).await?) {
             ClientResponse::Thread(ref thread) => Ok(thread.clone()),
-            _ => Err(Error::Generic("Invalid response".to_string())),
+            _ => Err(Error::InvalidResponse)
         }
     }
 }
@@ -249,8 +257,8 @@ impl BoardWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rchan_types::board::Cooldowns;
     use rchan_api::client::Client;
+    use rchan_types::board::Cooldowns;
     use std::sync::Arc;
 
     #[tracing_test::traced_test]

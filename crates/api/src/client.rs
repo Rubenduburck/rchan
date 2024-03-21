@@ -1,7 +1,8 @@
 use tracing::{debug, error};
 
 use super::{
-    cache::ClientCache, endpoint::Endpoint, error::Error, rate_limit::RateLimitedClient,
+    error::Error,
+    cache::ClientCache, endpoint::Endpoint, rate_limit::RateLimitedClient,
     response::ClientResponse,
 };
 use std::sync::Arc;
@@ -21,6 +22,7 @@ pub struct Client {
 /// 4. Make API requests using the same protocol as the app. Only use SSL when a user is accessing
 ///    your app over HTTPS.
 impl Client {
+    const MAX_RETRIES: u8 = 3;
     pub fn new() -> Self {
         Self {
             http: Arc::new(RateLimitedClient::default()),
@@ -55,6 +57,26 @@ impl Client {
         .await
     }
 
+    pub async fn get_with_retry(
+        &self,
+        endpoint: &Endpoint,
+        https: bool,
+    ) -> Result<Arc<ClientResponse>, Error> {
+        let mut retries = 0;
+        loop {
+            match self.get(endpoint, https).await {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    error!("Error getting {}: {}", endpoint, e);
+                    retries += 1;
+                    if retries > Self::MAX_RETRIES {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn handle_response(
         &self,
         endpoint: &Endpoint,
@@ -73,10 +95,7 @@ impl Client {
             }
             _ => {
                 error!("request {} status: {}", endpoint, resp.status());
-                Err(Error::Generic(format!(
-                    "Received status code: {}",
-                    resp.status()
-                )))
+                Err(Error::StatusCode(resp.status().as_u16().to_string()))
             }
         }
     }

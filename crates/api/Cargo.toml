@@ -13,5 +13,3 @@ chrono.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true
 tracing-test.workspace = true
-
-

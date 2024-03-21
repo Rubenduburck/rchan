@@ -725,6 +725,7 @@ dependencies = [
  "futures",
  "rchan-api",
  "rchan-types",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-test",

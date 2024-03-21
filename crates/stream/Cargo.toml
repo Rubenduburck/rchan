@@ -13,3 +13,4 @@ tokio.workspace = true
 tracing-test.workspace = true
 chrono.workspace = true
 futures.workspace = true
+thiserror.workspace = true

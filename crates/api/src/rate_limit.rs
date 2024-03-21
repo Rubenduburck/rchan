@@ -36,7 +36,8 @@ impl RateLimiter {
         if self.timestamps.len() >= self.rate_limit_per_interval {
             let sleep_duration = self.timestamps.first().unwrap() - now;
             debug!("Rate limiting: sleeping for {} ms", sleep_duration);
-            self.timestamps.push(now + sleep_duration + self.interval_duration_ms);
+            self.timestamps
+                .push(now + sleep_duration + self.interval_duration_ms);
             tokio::time::sleep(std::time::Duration::from_millis(sleep_duration as u64)).await;
         } else {
             self.timestamps.push(now + self.interval_duration_ms);
@@ -46,38 +47,61 @@ impl RateLimiter {
 
 #[derive(Debug, Clone)]
 pub struct RateLimitedClient {
-    receiver: Sender<(reqwest::Request, Sender<reqwest::Response>)>,
+    receiver: Sender<ClientRequest>,
+}
+
+enum ClientRequest {
+    Get(String, Sender<reqwest::Response>),
+    Execute(reqwest::Request, Sender<reqwest::Response>),
 }
 
 impl RateLimitedClient {
     pub fn new(rate_limit_per_interval: usize, interval_duration_ms: u128) -> Self {
-        let (tx, mut rx) =
-            tokio::sync::mpsc::channel::<(reqwest::Request, Sender<reqwest::Response>)>(100);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
         tokio::spawn(async move {
             let mut rl = RateLimiter::new(rate_limit_per_interval, interval_duration_ms);
             let client = reqwest::Client::new();
             loop {
-                if let Some((req, tx)) = rx.recv().await {
+                if let Some(req) = rx.recv().await {
                     rl.rate_limit().await;
-                    let response = client.execute(req).await.unwrap();
-                    tx.send(response)
-                        .await
-                        .map_err(|e| error!("{:?}", e))
-                        .unwrap();
+                    let client = client.clone();
+                    match req {
+                        ClientRequest::Get(url, tx) => {
+                            Self::handle_get(client, tx, url).await;
+                        }
+                        ClientRequest::Execute(req, tx) => {
+                            Self::handle_execute(client, tx, req).await;
+                        }
+                    }
                 }
             }
         });
         Self { receiver: tx }
     }
 
+    async fn handle_get(client: reqwest::Client, tx: Sender<reqwest::Response>, url: String) {
+        tokio::spawn(async move {
+            let response = client.get(&url).send().await.unwrap();
+            tx.send(response).await.unwrap();
+        });
+    }
+
+    async fn handle_execute(
+        client: reqwest::Client,
+        tx: Sender<reqwest::Response>,
+        request: reqwest::Request,
+    ) {
+        tokio::spawn(async move {
+            let response = client.execute(request).await.unwrap();
+            tx.send(response).await.unwrap();
+        });
+    }
+
     pub async fn get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
         debug!("getting {}", url);
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
-            .send((
-                reqwest::Request::new(reqwest::Method::GET, url.parse().unwrap()),
-                tx,
-            ))
+            .send(ClientRequest::Get(url.to_string(), tx))
             .await
             .map_err(|e| error!("{:?}", e))
             .unwrap();
@@ -90,7 +114,7 @@ impl RateLimitedClient {
     ) -> Result<reqwest::Response, reqwest::Error> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
-            .send((request, tx))
+            .send(ClientRequest::Execute(request, tx))
             .await
             .map_err(|e| error!("{:?}", e))
             .unwrap();

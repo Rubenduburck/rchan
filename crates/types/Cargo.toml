@@ -6,4 +6,3 @@ repository = "https://github.com/rubenduburck/rchan"
 
 [dependencies]
 serde.workspace = true
-
