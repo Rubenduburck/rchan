@@ -1,78 +1,60 @@
 use rchan_api::client::Client;
-use rchan_types::{board::Board, post::Post};
+use rchan_types::board::Board;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
 use super::error::Error;
 
 #[derive(Debug, Clone)]
-pub struct BoardConfig {
-    pub name: String,
+pub struct Subscription {
+    pub board_name: String,
     pub refresh_rate_ms: i64,
 }
 
-impl BoardConfig {
+impl Subscription {
     const DEFAULT_REFRESH_RATE_MS: i64 = 10000;
-    pub fn new(name: String, refresh_rate_ms: Option<i64>) -> BoardConfig {
-        BoardConfig {
-            name,
+    pub fn new(name: String, refresh_rate_ms: Option<i64>) -> Subscription {
+        Subscription {
+            board_name: name,
             refresh_rate_ms: refresh_rate_ms.unwrap_or(Self::DEFAULT_REFRESH_RATE_MS),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum Event {
-    NewPost(Post),
-    NewThread(Post),
-}
-
-impl From<Post> for Event {
-    fn from(post: Post) -> Self {
-        if post.is_op() {
-            Event::NewThread(post)
-        } else {
-            Event::NewPost(post)
-        }
-    }
-}
 
 pub struct Stream {
     boards: Arc<Vec<Board>>,
     api: Arc<Client>,
-    events_tx: tokio::sync::mpsc::Sender<Event>,
+    events_tx: tokio::sync::mpsc::Sender<crate::worker::Event>,
 
-    kill_switches: HashMap<String, tokio::sync::oneshot::Sender<()>>,
+    workers: HashMap<String, tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Stream {
     pub fn new(
         api: Arc<Client>,
-        events_tx: tokio::sync::mpsc::Sender<Event>,
+        events_tx: tokio::sync::mpsc::Sender<crate::worker::Event>,
     ) -> Self {
         Stream {
             api,
             boards: Arc::new(Vec::new()),
             events_tx,
-            kill_switches: HashMap::new(),
+            workers: HashMap::new(),
         }
     }
 
-    pub async fn subscribe(&mut self, cfg: BoardConfig) -> Result<(), Error> {
-        if self.kill_switches.contains_key(&cfg.name) {
+    pub async fn subscribe(&mut self, sub: Subscription) -> Result<(), Error> {
+        if self.workers.contains_key(&sub.board_name) {
             return Err(Error::AlreadySubscribed("Board already subscribed".to_string()));
         }
-        let (new_posts_tx, mut new_posts_rx) = tokio::sync::mpsc::channel(100);
-        let board_name = cfg.name.clone();
+        let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
+        let board_name = sub.board_name.clone();
         let board_data = self.get_board_data(&board_name).await?;
-        let kill_worker = Self::start_worker(self.api.clone(), cfg, board_data, new_posts_tx);
+        let kill_worker = Self::start_worker(self.api.clone(), sub, board_data, events_tx);
         let events_tx = self.events_tx.clone();
-        self.kill_switches.insert(board_name, kill_worker);
+        self.workers.insert(board_name, kill_worker);
         tokio::spawn(async move {
-            while let Some(new_post) = new_posts_rx.recv().await {
-                let event = Event::from(new_post);
-                if let Err(e) = events_tx.send(event).await {
-                    error!("Error sending event: {:?}", e);
-                }
+            while let Some(new_event) = events_rx.recv().await {
+                events_tx.send(new_event).await.unwrap();
             }
         });
         Ok(())
@@ -94,16 +76,16 @@ impl Stream {
     }
 
     pub fn kill_worker(&mut self, board: &str) {
-        if let Some(kill_switch) = self.kill_switches.remove(board) {
-            let _ = kill_switch.send(());
+        if let Some(worker) = self.workers.remove(board) {
+            let _ = worker.send(());
         }
     }
 
     fn start_worker(
         api: Arc<Client>,
-        cfg: BoardConfig,
+        cfg: Subscription,
         board: Board,
-        new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+        new_posts_tx: tokio::sync::mpsc::Sender<crate::worker::Event>,
     ) -> tokio::sync::oneshot::Sender<()> {
         info!("Starting worker for board {}", board.board.clone());
         let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
@@ -135,10 +117,12 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_subscribe() {
         let client = Arc::new(Client::default());
-        let cfg = BoardConfig::new("g".to_string(), Some(10000));
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
+
         let mut stream = Stream::new(client, events_tx);
-        stream.subscribe(cfg).await.unwrap();
+        stream.subscribe(Subscription::new("g".to_string(), None)).await.unwrap();
+        stream.subscribe(Subscription::new("v".to_string(), None)).await.unwrap();
+
         while let Some(event) = events_rx.recv().await {
             info!("Received event: {:?}", event);
         }

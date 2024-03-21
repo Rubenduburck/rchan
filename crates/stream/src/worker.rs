@@ -1,4 +1,4 @@
-use super::client::BoardConfig;
+use super::client::Subscription;
 use rchan_api::{client::Client, error::Error};
 use rchan_types::{
     board::Board,
@@ -6,6 +6,34 @@ use rchan_types::{
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, error, info};
+
+#[derive(Debug)]
+pub struct NewPost {
+    pub board: String,
+    pub post: Arc<Post>,
+}
+
+#[derive(Debug)]
+pub struct NewThread {
+    pub board: String,
+    pub post: Arc<Post>,
+}
+
+#[derive(Debug)]
+pub enum Event {
+    NewPost(NewPost),
+    NewThread(NewThread),
+}
+
+impl Event {
+    pub fn new(board: String, post: Arc<Post>) -> Event {
+        if post.is_op() {
+            Event::NewThread(NewThread { board, post })
+        } else {
+            Event::NewPost(NewPost { board, post })
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ThreadCache {
@@ -41,19 +69,19 @@ impl BoardCache {
 
 pub struct BoardWorker {
     api: Arc<Client>,
-    cfg: BoardConfig,
+    cfg: Subscription,
     board: Board,
     cache: BoardCache,
-    new_posts_chan: tokio::sync::mpsc::Sender<Post>,
+    events_chan: tokio::sync::mpsc::Sender<Event>,
     kill: Option<tokio::sync::oneshot::Receiver<()>>,
 }
 
 impl BoardWorker {
     pub fn new(
         api: Arc<Client>,
-        cfg: BoardConfig,
+        cfg: Subscription,
         board: Board,
-        new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+        new_posts_tx: tokio::sync::mpsc::Sender<Event>,
         kill: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> BoardWorker {
         let cache = BoardCache::new(board.thread_limit() as usize);
@@ -62,16 +90,16 @@ impl BoardWorker {
             cfg,
             board,
             cache,
-            new_posts_chan: new_posts_tx,
+            events_chan: new_posts_tx,
             kill,
         }
     }
 
     pub async fn new_and_run(
         api: Arc<Client>,
-        cfg: BoardConfig,
+        cfg: Subscription,
         board: Board,
-        new_posts_tx: tokio::sync::mpsc::Sender<Post>,
+        new_posts_tx: tokio::sync::mpsc::Sender<Event>,
         kill: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> Result<(), Error> {
         let mut worker = BoardWorker::new(api, cfg, board, new_posts_tx, kill);
@@ -134,8 +162,8 @@ impl BoardWorker {
             .map(|pages| self.update_cache(&pages))?
         {
             let api = self.api.clone();
-            let board = self.board.name().to_string();
-            let new_posts_chan = self.new_posts_chan.clone();
+            let board_name = self.board.name().to_string();
+            let new_posts_chan = self.events_chan.clone();
             let cache = self
                 .cache
                 .threads
@@ -145,7 +173,7 @@ impl BoardWorker {
             let (tx, rx) = tokio::sync::oneshot::channel();
             rxs.push(rx);
             tokio::spawn(async move {
-                match api.get_thread(&board, cache.no).await {
+                match api.get_thread(&board_name, cache.no).await {
                     Ok(thread) => {
                         for new_post in thread
                             .posts
@@ -155,7 +183,7 @@ impl BoardWorker {
                             })
                             .collect::<Vec<_>>()
                         {
-                            if let Err(e) = new_posts_chan.send(new_post.clone()).await {
+                            if let Err(e) = new_posts_chan.send(Event::new(board_name.clone(), Arc::new(new_post.clone()))).await {
                                 error!("Error sending new post: {:?}", e);
                             }
                         }
@@ -242,8 +270,8 @@ mod tests {
     #[tokio::test]
     async fn test_run() {
         let client = Arc::new(Client::default());
-        let cfg = BoardConfig {
-            name: "pol".to_string(),
+        let cfg = Subscription {
+            board_name: "pol".to_string(),
             refresh_rate_ms: 10000,
         };
         let board = Board {
@@ -292,8 +320,8 @@ mod tests {
     #[tokio::test]
     async fn test_kill() {
         let client = Arc::new(Client::default());
-        let cfg = BoardConfig {
-            name: "pol".to_string(),
+        let cfg = Subscription {
+            board_name: "pol".to_string(),
             refresh_rate_ms: 10000,
         };
         let board = Board {

@@ -6,3 +6,7 @@ repository = "https://github.com/rubenduburck/rchan"
 
 [dependencies]
 serde.workspace = true
+regex.workspace = true
+html-entities.workspace = true
+tracing-test.workspace = true
+tracing.workspace = true
