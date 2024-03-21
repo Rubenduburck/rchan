@@ -50,7 +50,7 @@ pub struct BoardWorker {
 
 impl BoardWorker {
     pub fn new(
-        http: Arc<Client>,
+        api: Arc<Client>,
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
@@ -58,7 +58,7 @@ impl BoardWorker {
     ) -> BoardWorker {
         let cache = BoardCache::new(board.thread_limit() as usize);
         BoardWorker {
-            api: http,
+            api,
             cfg,
             board,
             cache,
@@ -68,13 +68,13 @@ impl BoardWorker {
     }
 
     pub async fn new_and_run(
-        http: Arc<Client>,
+        api: Arc<Client>,
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
         kill: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> Result<(), Error> {
-        let mut worker = BoardWorker::new(http, cfg, board, new_posts_tx, kill);
+        let mut worker = BoardWorker::new(api, cfg, board, new_posts_tx, kill);
         worker.run().await
     }
 

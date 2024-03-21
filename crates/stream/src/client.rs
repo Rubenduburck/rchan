@@ -38,7 +38,7 @@ impl From<Post> for Event {
 
 pub struct Stream {
     boards: Arc<Vec<Board>>,
-    http: Arc<Client>,
+    api: Arc<Client>,
     events_tx: tokio::sync::mpsc::Sender<Event>,
 
     kill_switches: HashMap<String, tokio::sync::oneshot::Sender<()>>,
@@ -46,11 +46,11 @@ pub struct Stream {
 
 impl Stream {
     pub fn new(
-        http: Arc<Client>,
+        api: Arc<Client>,
         events_tx: tokio::sync::mpsc::Sender<Event>,
     ) -> Self {
         Stream {
-            http,
+            api,
             boards: Arc::new(Vec::new()),
             events_tx,
             kill_switches: HashMap::new(),
@@ -64,7 +64,7 @@ impl Stream {
         let (new_posts_tx, mut new_posts_rx) = tokio::sync::mpsc::channel(100);
         let board_name = cfg.name.clone();
         let board_data = self.get_board_data(&board_name).await?;
-        let kill_worker = Self::start_worker(self.http.clone(), cfg, board_data, new_posts_tx);
+        let kill_worker = Self::start_worker(self.api.clone(), cfg, board_data, new_posts_tx);
         let events_tx = self.events_tx.clone();
         self.kill_switches.insert(board_name, kill_worker);
         tokio::spawn(async move {
@@ -84,7 +84,7 @@ impl Stream {
 
     async fn get_board_data(&mut self, board: &str) -> Result<Board, Error> {
         if self.boards.is_empty() {
-            self.boards = self.http.get_boards().await?;
+            self.boards = self.api.get_boards().await?;
         }
         if let Some(board) = self.boards.iter().find(|b| b.board == board) {
             Ok(board.clone())
@@ -100,7 +100,7 @@ impl Stream {
     }
 
     fn start_worker(
-        http: Arc<Client>,
+        api: Arc<Client>,
         cfg: BoardConfig,
         board: Board,
         new_posts_tx: tokio::sync::mpsc::Sender<Post>,
@@ -109,7 +109,7 @@ impl Stream {
         let (kill_tx, kill_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             if let Err(e) = crate::worker::BoardWorker::new_and_run(
-                http.clone(),
+                api.clone(),
                 cfg,
                 board,
                 new_posts_tx,
