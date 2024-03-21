@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use tokio::sync::mpsc::Sender;
 use tracing::debug;
@@ -8,13 +8,13 @@ use super::{endpoint::Endpoint, response::ClientResponse};
 pub enum CacheRequest {
     LastCalled(Endpoint, Sender<CacheResponse>),
     LastResponse(Endpoint, Sender<CacheResponse>),
-    Update(Endpoint, Arc<ClientResponse>),
+    Update(Endpoint, ClientResponse),
 }
 
 #[derive(Debug, Clone)]
 pub enum CacheResponse {
     LastCalled(chrono::DateTime<chrono::Utc>),
-    LastResponse(Arc<ClientResponse>),
+    LastResponse(ClientResponse),
     None,
 }
 
@@ -25,7 +25,7 @@ pub struct ClientCache {
 
 pub struct CacheInner {
     last_called: HashMap<Endpoint, chrono::DateTime<chrono::Utc>>,
-    last_response: HashMap<Endpoint, Arc<ClientResponse>>,
+    last_response: HashMap<Endpoint, ClientResponse>,
 }
 
 impl ClientCache {
@@ -54,14 +54,14 @@ impl ClientCache {
         }
     }
 
-    pub async fn update(&self, endpoint: Endpoint, response: Arc<ClientResponse>) {
+    pub async fn update(&self, endpoint: Endpoint, response: ClientResponse) {
         self.receiver
             .send(CacheRequest::Update(endpoint, response))
             .await
             .unwrap();
     }
 
-    pub async fn last_response(&self, endpoint: Endpoint) -> Option<Arc<ClientResponse>> {
+    pub async fn last_response(&self, endpoint: Endpoint) -> Option<ClientResponse> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
             .send(CacheRequest::LastResponse(endpoint, tx))
@@ -105,9 +105,7 @@ impl CacheInner {
         match self.last_called.get(endpoint) {
             Some(time) => {
                 debug!("Found last called time for {}", endpoint);
-                tx.send(CacheResponse::LastCalled(*time))
-                    .await
-                    .unwrap();
+                tx.send(CacheResponse::LastCalled(*time)).await.unwrap();
             }
             None => {
                 debug!("No last called time for {}", endpoint);
@@ -131,12 +129,11 @@ impl CacheInner {
         }
     }
 
-    pub fn handle_update(&mut self, endpoint: &Endpoint, response: Arc<ClientResponse>) {
+    pub fn handle_update(&mut self, endpoint: &Endpoint, response: ClientResponse) {
         debug!("Updating cache for {}", endpoint);
         self.last_called
             .insert(endpoint.clone(), chrono::Utc::now());
-        self.last_response
-            .insert(endpoint.clone(), response);
+        self.last_response.insert(endpoint.clone(), response);
     }
 }
 
@@ -148,10 +145,8 @@ impl Default for CacheInner {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
-    use rchan_types::board::BoardsResponse;
-
+    use std::sync::Arc;
     use tokio::sync::mpsc::channel;
 
     #[tracing_test::traced_test]
@@ -168,9 +163,7 @@ mod tests {
         let response = rx.recv().await.unwrap();
         assert!(matches!(response, CacheResponse::None));
 
-        let resp = Arc::new(ClientResponse::Boards(BoardsResponse{
-            boards: vec![]
-        }));
+        let resp = ClientResponse::Boards(Arc::new(vec![]));
 
         let update_request = CacheRequest::Update(endpoint.clone(), resp.clone());
         cache.receiver.send(update_request).await.unwrap();

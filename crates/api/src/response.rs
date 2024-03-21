@@ -1,19 +1,21 @@
+use std::sync::Arc;
+
 use super::endpoint::Endpoint;
 use rchan_types::{
-    board::BoardsResponse,
+    board::{Board, BoardsResponse},
     catalog::CatalogPage,
     index::Index,
     post::{Thread, ThreadPage},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ClientResponse {
-    Boards(BoardsResponse),
-    Threads(Vec<ThreadPage>),
-    Catalog(Vec<CatalogPage>),
-    Archive(Vec<i32>),
-    Index(Index),
-    Thread(Thread),
+    Boards(Arc<Vec<Board>>),
+    Threads(Arc<Vec<ThreadPage>>),
+    Catalog(Arc<Vec<CatalogPage>>),
+    Archive(Arc<Vec<i32>>),
+    Index(Arc<Index>),
+    Thread(Arc<Thread>),
     NotModified,
 }
 
@@ -23,12 +25,12 @@ impl ClientResponse {
         resp: reqwest::Response,
     ) -> Result<Self, reqwest::Error> {
         match endpoint {
-            Endpoint::Boards => Ok(Self::Boards(resp.json().await?)),
-            Endpoint::Threads(_) => Ok(Self::Threads(resp.json().await?)),
-            Endpoint::Catalog(_) => Ok(Self::Catalog(resp.json().await?)),
-            Endpoint::Archive(_) => Ok(Self::Archive(resp.json().await?)),
-            Endpoint::Index(_, _) => Ok(Self::Index(resp.json().await?)),
-            Endpoint::Thread(_, _) => Ok(Self::Thread(resp.json().await?)),
+            Endpoint::Boards => Ok(ClientResponse::Boards(Arc::new(resp.json::<BoardsResponse>().await?.boards))),
+            Endpoint::Threads(_) => Ok(ClientResponse::Threads(Arc::new(resp.json().await?))),
+            Endpoint::Catalog(_) => Ok(ClientResponse::Catalog(Arc::new(resp.json().await?))),
+            Endpoint::Archive(_) => Ok(ClientResponse::Archive(Arc::new(resp.json().await?))),
+            Endpoint::Index(_, _) => Ok(ClientResponse::Index(Arc::new(resp.json().await?))),
+            Endpoint::Thread(_, _) => Ok(ClientResponse::Thread(Arc::new(resp.json().await?))),
         }
     }
 }

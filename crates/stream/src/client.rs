@@ -1,4 +1,4 @@
-use rchan_api::{client::Client, endpoint::Endpoint, response::ClientResponse};
+use rchan_api::client::Client;
 use rchan_types::{board::Board, post::Post};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
@@ -37,7 +37,7 @@ impl From<Post> for Event {
 }
 
 pub struct Stream {
-    boards: Vec<Board>,
+    boards: Arc<Vec<Board>>,
     http: Arc<Client>,
     events_tx: tokio::sync::mpsc::Sender<Event>,
 
@@ -51,7 +51,7 @@ impl Stream {
     ) -> Self {
         Stream {
             http,
-            boards: vec![],
+            boards: Arc::new(Vec::new()),
             events_tx,
             kill_switches: HashMap::new(),
         }
@@ -84,20 +84,12 @@ impl Stream {
 
     async fn get_board_data(&mut self, board: &str) -> Result<Board, Error> {
         if self.boards.is_empty() {
-            self.boards = self.get_available_boards().await?;
+            self.boards = self.http.get_boards().await?;
         }
         if let Some(board) = self.boards.iter().find(|b| b.board == board) {
             Ok(board.clone())
         } else {
             Err(Error::BoardNotFound("Board not found".to_string()))
-        }
-    }
-
-    async fn get_available_boards(&self) -> Result<Vec<Board>, Error> {
-        let endpoint = Endpoint::Boards;
-        match *(self.http.get(&endpoint, false).await?) {
-            ClientResponse::Boards(ref resp) => Ok(resp.boards.clone()),
-            _ => Err(Error::InvalidResponse),
         }
     }
 

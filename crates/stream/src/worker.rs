@@ -1,8 +1,8 @@
 use super::client::BoardConfig;
-use rchan_api::{client::Client, endpoint::Endpoint, error::Error, response::ClientResponse};
+use rchan_api::{client::Client, error::Error};
 use rchan_types::{
     board::Board,
-    post::{Post, Thread},
+    post::{Post, ThreadPage},
 };
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, error, info};
@@ -40,7 +40,7 @@ impl BoardCache {
 }
 
 pub struct BoardWorker {
-    http: Arc<Client>,
+    api: Arc<Client>,
     cfg: BoardConfig,
     board: Board,
     cache: BoardCache,
@@ -58,7 +58,7 @@ impl BoardWorker {
     ) -> BoardWorker {
         let cache = BoardCache::new(board.thread_limit() as usize);
         BoardWorker {
-            http,
+            api: http,
             cfg,
             board,
             cache,
@@ -79,8 +79,8 @@ impl BoardWorker {
     }
 
     pub async fn init(&mut self) -> Result<(), Error> {
-        self.fetch_threads().await.map(|threads| {
-            self.update_cache(&threads);
+        self.api.get_threads(self.board.name()).await.map(|pages| {
+            self.update_cache(&pages);
         })
     }
 
@@ -128,11 +128,12 @@ impl BoardWorker {
         let last_update_sec = self.cache.last_update_sec;
         let mut rxs = vec![];
         for modified_thread in self
-            .fetch_threads()
+            .api
+            .get_threads(self.board.name())
             .await
-            .map(|threads| self.update_cache(&threads))?
+            .map(|pages| self.update_cache(&pages))?
         {
-            let http = self.http.clone();
+            let api = self.api.clone();
             let board = self.board.name().to_string();
             let new_posts_chan = self.new_posts_chan.clone();
             let cache = self
@@ -144,7 +145,7 @@ impl BoardWorker {
             let (tx, rx) = tokio::sync::oneshot::channel();
             rxs.push(rx);
             tokio::spawn(async move {
-                match Self::fetch_thread(http, board, modified_thread.no).await {
+                match api.get_thread(&board, cache.no).await {
                     Ok(thread) => {
                         for new_post in thread
                             .posts
@@ -197,60 +198,36 @@ impl BoardWorker {
     /// 3. Update modified threads
     /// 4. Sort modified threads by last_modified
     /// 5. Return modified threads
-    fn update_cache(&mut self, threads: &[Post]) -> Vec<Post> {
+    fn update_cache(&mut self, pages: &[ThreadPage]) -> Vec<Post> {
+        let n_threads: usize = pages.iter().map(|page| page.threads.len()).sum();
         debug!(
             "Updating cache for board: {}, threads: {}",
             self.board.name(),
-            threads.len()
+            n_threads,
         );
-        self.cache
-            .threads
-            .retain(|k, _| threads.iter().any(|t| t.no == *k));
+        self.cache.threads.retain(|k, _| {
+            pages
+                .iter()
+                .any(|page| page.threads.iter().any(|t| t.no == *k))
+        });
         let mut modified_threads = vec![];
-        for thread in threads {
-            let cache = self
-                .cache
-                .threads
-                .entry(thread.no)
-                .or_insert(ThreadCache::new(thread.no, 0));
-            let thread_last_modified = thread.last_modified.unwrap_or(0);
-            if cache.last_modified < thread_last_modified {
-                modified_threads.push(thread.clone());
-                cache.prev_last_modified = cache.last_modified;
-                cache.last_modified = thread_last_modified;
+        for page in pages {
+            for thread in &page.threads {
+                let cache = self
+                    .cache
+                    .threads
+                    .entry(thread.no)
+                    .or_insert(ThreadCache::new(thread.no, 0));
+                let thread_last_modified = thread.last_modified.unwrap_or(0);
+                if cache.last_modified < thread_last_modified {
+                    modified_threads.push(thread.clone());
+                    cache.prev_last_modified = cache.last_modified;
+                    cache.last_modified = thread_last_modified;
+                }
             }
         }
         modified_threads.sort_by(|a, b| a.last_modified.cmp(&b.last_modified));
         modified_threads
-    }
-
-    /// Fetch partial thread information from the external API
-    async fn fetch_threads(&self) -> Result<Vec<Post>, Error> {
-        debug!("Fetching threads for board: {}", self.board.name());
-        match *(self
-            .http
-            .get(&Endpoint::Threads(self.board.name().to_string()), false)
-            .await?)
-        {
-            ClientResponse::Threads(ref pages) => Ok(pages
-                .iter()
-                .flat_map(|page| page.threads.clone())
-                .collect::<Vec<_>>()),
-            _ => Err(Error::InvalidResponse)
-        }
-    }
-
-    /// Fetch a full single thread from the external API
-    async fn fetch_thread(
-        http: Arc<Client>,
-        board: String,
-        thread_no: i32,
-    ) -> Result<Thread, Error> {
-        debug!("Fetching thread: {}/{}", board, thread_no);
-        match *(http.get(&Endpoint::Thread(board, thread_no), false).await?) {
-            ClientResponse::Thread(ref thread) => Ok(thread.clone()),
-            _ => Err(Error::InvalidResponse)
-        }
     }
 }
 

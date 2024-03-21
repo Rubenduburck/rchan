@@ -15,4 +15,7 @@ pub enum Error {
     #[error("Invalid response")]
     InvalidResponse,
 
+    #[error("No cached response")]
+    NoCachedResponse,
+
 }

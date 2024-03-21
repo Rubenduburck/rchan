@@ -1,3 +1,4 @@
+use rchan_types::{board::Board, post::{ThreadPage, Thread}, catalog::CatalogPage, index::Index};
 use tracing::{debug, error};
 
 use super::{
@@ -46,7 +47,7 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         https: bool,
-    ) -> Result<Arc<ClientResponse>, Error> {
+    ) -> Result<ClientResponse, Error> {
         debug!("Sending request to {}", endpoint.url(https));
         self.handle_response(
             endpoint,
@@ -61,13 +62,13 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         https: bool,
-    ) -> Result<Arc<ClientResponse>, Error> {
+    ) -> Result<ClientResponse, Error> {
         let mut retries = 0;
         loop {
             match self.get(endpoint, https).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    error!("Error getting {}: {}", endpoint, e);
+                    error!("Error getting {}: {}, retrying {} more times", (Self::MAX_RETRIES - retries), endpoint, e);
                     retries += 1;
                     if retries > Self::MAX_RETRIES {
                         return Err(e);
@@ -81,11 +82,11 @@ impl Client {
         &self,
         endpoint: &Endpoint,
         resp: reqwest::Response,
-    ) -> Result<Arc<ClientResponse>, Error> {
+    ) -> Result<ClientResponse, Error> {
         match resp.status() {
             reqwest::StatusCode::OK => {
                 debug!("request: {} status: OK", endpoint);
-                let parsed = Arc::new(self.parse_response(endpoint, resp).await?);
+                let parsed = ClientResponse::parse(endpoint, resp).await?;
                 self.cache.update(endpoint.clone(), parsed.clone()).await;
                 Ok(parsed)
             }
@@ -100,20 +101,58 @@ impl Client {
         }
     }
 
-    pub async fn parse_response(
-        &self,
-        endpoint: &Endpoint,
-        resp: reqwest::Response,
-    ) -> Result<ClientResponse, Error> {
-        match endpoint {
-            Endpoint::Boards => Ok(ClientResponse::Boards(resp.json().await?)),
-            Endpoint::Threads(_) => Ok(ClientResponse::Threads(resp.json().await?)),
-            Endpoint::Catalog(_) => Ok(ClientResponse::Catalog(resp.json().await?)),
-            Endpoint::Archive(_) => Ok(ClientResponse::Archive(resp.json().await?)),
-            Endpoint::Index(_, _) => Ok(ClientResponse::Index(resp.json().await?)),
-            Endpoint::Thread(_, _) => Ok(ClientResponse::Thread(resp.json().await?)),
+    pub async fn get_boards(&self) -> Result<Arc<Vec<Board>>, Error> {
+        match self.get(&Endpoint::Boards, false).await? {
+            ClientResponse::Boards(boards) => Ok(boards),
+            _ => Err(Error::InvalidResponse),
         }
     }
+
+    pub async fn get_threads(&self, board: &str) -> Result<Arc<Vec<ThreadPage>>, Error> {
+        self.get(&Endpoint::Threads(board.to_string()), false)
+            .await
+            .map(|x| match x {
+                ClientResponse::Threads(threads) => threads,
+                _ => panic!("Invalid response"),
+            })
+    }
+
+    pub async fn get_catalog(&self, board: &str) -> Result<Arc<Vec<CatalogPage>>, Error> {
+        self.get(&Endpoint::Catalog(board.to_string()), false)
+            .await
+            .map(|x| match x {
+                ClientResponse::Catalog(catalog) => catalog,
+                _ => panic!("Invalid response"),
+            })
+    }
+
+    pub async fn get_archive(&self, board: &str) -> Result<Arc<Vec<i32>>, Error> {
+        self.get(&Endpoint::Archive(board.to_string()), false)
+            .await
+            .map(|x| match x {
+                ClientResponse::Archive(archive) => archive,
+                _ => panic!("Invalid response"),
+            })
+    }
+
+    pub async fn get_index(&self, board: &str, page: i32) -> Result<Arc<Index>, Error> {
+        self.get(&Endpoint::Index(board.to_string(), page), false)
+            .await
+            .map(|x| match x {
+                ClientResponse::Index(index) => index,
+                _ => panic!("Invalid response"),
+            })
+    }
+
+    pub async fn get_thread(&self, board: &str, no: i32) -> Result<Arc<Thread>, Error> {
+        self.get(&Endpoint::Thread(board.to_string(), no), false)
+            .await
+            .map(|x| match x {
+                ClientResponse::Thread(thread) => thread,
+                _ => panic!("Invalid response"),
+            })
+    }
+
 }
 
 impl Default for Client {
@@ -147,7 +186,7 @@ mod tests {
         for (i, endpoint) in endpoints.enumerate() {
             debug!("Sending request to {}", endpoint.url(false));
             let resp = clients[i % 3].get(&endpoint, false).await.unwrap();
-            assert!(matches!(*resp, ClientResponse::Threads(_)));
+            assert!(matches!(resp, ClientResponse::Threads(_)));
         }
         let elapsed = now.elapsed().unwrap().as_millis();
         assert!(elapsed >= 9000);
@@ -159,9 +198,9 @@ mod tests {
         let endpoint = Endpoint::Boards;
         let client = Client::new();
         let resp = client.get(&endpoint, false).await.unwrap();
-        assert!(matches!(*resp, ClientResponse::Boards(_)));
+        assert!(matches!(resp, ClientResponse::Boards(_)));
         let resp = client.get(&endpoint, false).await.unwrap();
-        assert!(matches!(*resp, ClientResponse::Boards(_)));
+        assert!(matches!(resp, ClientResponse::Boards(_)));
     }
 
     #[tracing_test::traced_test]
