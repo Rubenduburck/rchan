@@ -241,7 +241,7 @@ mod tests {
     #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_run() {
-        let client = Arc::new(Client::new());
+        let client = Arc::new(Client::default());
         let cfg = BoardConfig {
             name: "pol".to_string(),
             refresh_rate_ms: 10000,
@@ -291,7 +291,7 @@ mod tests {
     #[tracing_test::traced_test]
     #[tokio::test]
     async fn test_kill() {
-        let client = Arc::new(Client::new());
+        let client = Arc::new(Client::default());
         let cfg = BoardConfig {
             name: "pol".to_string(),
             refresh_rate_ms: 10000,

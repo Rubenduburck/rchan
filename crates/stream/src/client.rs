@@ -134,7 +134,7 @@ mod tests {
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_subscribe() {
-        let client = Arc::new(Client::new());
+        let client = Arc::new(Client::default());
         let cfg = BoardConfig::new("g".to_string(), Some(10000));
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
         let mut stream = Stream::new(client, events_tx);
