@@ -111,6 +111,7 @@ mod tests {
 
     use super::*;
     use rchan_api::client::Client;
+    use tracing::debug;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -123,8 +124,22 @@ mod tests {
         stream.subscribe(Subscription::new("g".to_string(), None)).await.unwrap();
         stream.subscribe(Subscription::new("v".to_string(), None)).await.unwrap();
 
+        let mut counts = HashMap::new();
+        let counts_needed = 5;
         while let Some(event) = events_rx.recv().await {
-            info!("Received event: {:?}", event);
+            match event {
+                crate::worker::Event::NewPost(event) => {
+                    debug!("New post on {}:\n{}", event.board, event.post.clean_comment().unwrap_or_default());
+                    counts.entry(event.board).and_modify(|e| *e += 1).or_insert(1);
+                }
+                crate::worker::Event::NewThread(event) => {
+                    debug!("New thread on {}:\n{}", event.board, event.post.clean_comment().unwrap_or_default());
+                    counts.entry(event.board).and_modify(|e| *e += 1).or_insert(1);
+                }
+            }
+            if counts.values().all(|v| *v >= counts_needed) {
+                break;
+            }
         }
     }
 

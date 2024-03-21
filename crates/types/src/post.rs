@@ -1,4 +1,3 @@
-use html_entities::{decode_html_entities, DecodeError};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -110,7 +109,6 @@ impl Ord for Post {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tracing::debug;
 
     fn post_from_comment(comment: &str) -> Post {
         Post {
