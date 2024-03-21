@@ -102,14 +102,14 @@ impl Client {
     }
 
     pub async fn get_boards(&self) -> Result<Arc<Vec<Board>>, Error> {
-        match self.get(&Endpoint::Boards, false).await? {
+        match self.get_with_retry(&Endpoint::Boards, false).await? {
             ClientResponse::Boards(boards) => Ok(boards),
             _ => Err(Error::InvalidResponse),
         }
     }
 
     pub async fn get_threads(&self, board: &str) -> Result<Arc<Vec<ThreadPage>>, Error> {
-        self.get(&Endpoint::Threads(board.to_string()), false)
+        self.get_with_retry(&Endpoint::Threads(board.to_string()), false)
             .await
             .map(|x| match x {
                 ClientResponse::Threads(threads) => threads,
@@ -118,7 +118,7 @@ impl Client {
     }
 
     pub async fn get_catalog(&self, board: &str) -> Result<Arc<Vec<CatalogPage>>, Error> {
-        self.get(&Endpoint::Catalog(board.to_string()), false)
+        self.get_with_retry(&Endpoint::Catalog(board.to_string()), false)
             .await
             .map(|x| match x {
                 ClientResponse::Catalog(catalog) => catalog,
@@ -127,7 +127,7 @@ impl Client {
     }
 
     pub async fn get_archive(&self, board: &str) -> Result<Arc<Vec<i32>>, Error> {
-        self.get(&Endpoint::Archive(board.to_string()), false)
+        self.get_with_retry(&Endpoint::Archive(board.to_string()), false)
             .await
             .map(|x| match x {
                 ClientResponse::Archive(archive) => archive,
@@ -136,7 +136,7 @@ impl Client {
     }
 
     pub async fn get_index(&self, board: &str, page: i32) -> Result<Arc<Index>, Error> {
-        self.get(&Endpoint::Index(board.to_string(), page), false)
+        self.get_with_retry(&Endpoint::Index(board.to_string(), page), false)
             .await
             .map(|x| match x {
                 ClientResponse::Index(index) => index,
@@ -145,7 +145,7 @@ impl Client {
     }
 
     pub async fn get_thread(&self, board: &str, no: i32) -> Result<Arc<Thread>, Error> {
-        self.get(&Endpoint::Thread(board.to_string(), no), false)
+        self.get_with_retry(&Endpoint::Thread(board.to_string(), no), false)
             .await
             .map(|x| match x {
                 ClientResponse::Thread(thread) => thread,
