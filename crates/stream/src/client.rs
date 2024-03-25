@@ -1,8 +1,8 @@
+use super::error::Error;
 use rchan_api::client::Client;
 use rchan_types::board::Board;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
-use super::error::Error;
 
 #[derive(Debug, Clone)]
 pub struct Subscription {
@@ -20,7 +20,6 @@ impl Subscription {
     }
 }
 
-
 pub struct Stream {
     boards: Arc<Vec<Board>>,
     api: Arc<Client>,
@@ -31,11 +30,11 @@ pub struct Stream {
 
 impl Stream {
     pub fn new(
-        api: Arc<Client>,
+        client: Option<Arc<Client>>,
         events_tx: tokio::sync::mpsc::Sender<crate::worker::Event>,
     ) -> Self {
         Stream {
-            api,
+            api: client.unwrap_or_else(|| Arc::new(Client::default())),
             boards: Arc::new(Vec::new()),
             events_tx,
             workers: HashMap::new(),
@@ -44,7 +43,9 @@ impl Stream {
 
     pub async fn subscribe(&mut self, sub: Subscription) -> Result<(), Error> {
         if self.workers.contains_key(&sub.board_name) {
-            return Err(Error::AlreadySubscribed("Board already subscribed".to_string()));
+            return Err(Error::AlreadySubscribed(
+                "Board already subscribed".to_string(),
+            ));
         }
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
         let board_name = sub.board_name.clone();
@@ -110,31 +111,48 @@ impl Stream {
 mod tests {
 
     use super::*;
-    use rchan_api::client::Client;
     use tracing::debug;
-    use std::sync::Arc;
 
     #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_subscribe() {
-        let client = Arc::new(Client::default());
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
 
-        let mut stream = Stream::new(client, events_tx);
-        stream.subscribe(Subscription::new("g".to_string(), None)).await.unwrap();
-        stream.subscribe(Subscription::new("v".to_string(), None)).await.unwrap();
+        let mut stream = Stream::new(None, events_tx);
+        stream
+            .subscribe(Subscription::new("g".to_string(), None))
+            .await
+            .unwrap();
+        stream
+            .subscribe(Subscription::new("v".to_string(), None))
+            .await
+            .unwrap();
 
         let mut counts = HashMap::new();
         let counts_needed = 5;
         while let Some(event) = events_rx.recv().await {
             match event {
                 crate::worker::Event::NewPost(event) => {
-                    debug!("New post on {}:\n{}", event.board, event.post.clean_comment().unwrap_or_default());
-                    counts.entry(event.board).and_modify(|e| *e += 1).or_insert(1);
+                    debug!(
+                        "New post on {}:\n{}",
+                        event.board,
+                        event.post.clean_comment().unwrap_or_default()
+                    );
+                    counts
+                        .entry(event.board)
+                        .and_modify(|e| *e += 1)
+                        .or_insert(1);
                 }
                 crate::worker::Event::NewThread(event) => {
-                    debug!("New thread on {}:\n{}", event.board, event.post.clean_comment().unwrap_or_default());
-                    counts.entry(event.board).and_modify(|e| *e += 1).or_insert(1);
+                    debug!(
+                        "New thread on {}:\n{}",
+                        event.board,
+                        event.post.clean_comment().unwrap_or_default()
+                    );
+                    counts
+                        .entry(event.board)
+                        .and_modify(|e| *e += 1)
+                        .or_insert(1);
                 }
             }
             if counts.values().all(|v| *v >= counts_needed) {
@@ -142,5 +160,4 @@ mod tests {
             }
         }
     }
-
 }
