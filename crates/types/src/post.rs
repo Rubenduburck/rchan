@@ -45,11 +45,22 @@ pub struct Post {
 
 impl Post {
     pub fn is_op(&self) -> bool {
-        self.resto.is_none()
+        self.resto.is_none() || self.resto.unwrap() == 0
     }
 
     pub fn is_reply(&self) -> bool {
-        self.resto.is_some()
+        self.resto.is_some() || self.resto.unwrap() != 0
+    }
+
+    pub fn thread_no(&self) -> i32 {
+        match self.resto {
+            Some(resto) if resto != 0 => resto,
+            _ => self.no,
+        }
+    }
+
+    pub fn post_no(&self) -> i32 {
+        self.no
     }
 
     pub fn is_sticky(&self) -> bool {
