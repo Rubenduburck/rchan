@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use tokio::sync::mpsc::Sender;
-use tracing::debug;
+use tracing::{debug, info};
 
 use super::{endpoint::Endpoint, response::ClientResponse};
 
@@ -41,6 +41,7 @@ impl ClientCache {
                 }
                 counter += 1;
                 if counter == Self::CLEANUP_INTERVAL {
+                    info!("Cleaning up cache");
                     counter = 0;
                     inner.cleanup();
                 }
