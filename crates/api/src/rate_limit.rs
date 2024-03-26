@@ -60,7 +60,10 @@ impl RateLimitedClient {
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
         tokio::spawn(async move {
             let mut rl = RateLimiter::new(rate_limit_per_interval, interval_duration_ms);
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("Failed to build reqwest client");
             loop {
                 if let Some(req) = rx.recv().await {
                     rl.rate_limit().await;
