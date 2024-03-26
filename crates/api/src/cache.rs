@@ -29,13 +29,20 @@ pub struct CacheInner {
 }
 
 impl ClientCache {
+    const CLEANUP_INTERVAL: u64 = 100;
     pub fn new() -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<CacheRequest>(100);
         tokio::spawn(async move {
             let mut inner = CacheInner::new();
+            let mut counter = 0;
             loop {
                 if let Some(request) = rx.recv().await {
                     inner.handle_request(request).await;
+                }
+                counter += 1;
+                if counter == Self::CLEANUP_INTERVAL {
+                    counter = 0;
+                    inner.cleanup();
                 }
             }
         });
@@ -81,12 +88,33 @@ impl Default for ClientCache {
 }
 
 impl CacheInner {
+    const MAX_CACHE_TIME_S: i64 = 60 * 60; // 1 hour
     pub fn new() -> Self {
         Self {
             last_called: HashMap::new(),
             last_response: HashMap::new(),
         }
     }
+
+    fn cleanup(&mut self) {
+        let now = chrono::Utc::now();
+        let entries_to_clean: Vec<Endpoint> = self
+            .last_called
+            .iter()
+            .filter_map(|(k, v)| {
+                if v.signed_duration_since(now).num_seconds() > Self::MAX_CACHE_TIME_S {
+                    Some(k.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.last_called
+            .retain(|k, _| !entries_to_clean.contains(k));
+        self.last_response
+            .retain(|k, _| !entries_to_clean.contains(k));
+    }
+
     pub async fn handle_request(&mut self, request: CacheRequest) {
         match request {
             CacheRequest::LastCalled(endpoint, tx) => {
