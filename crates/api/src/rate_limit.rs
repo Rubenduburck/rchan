@@ -51,8 +51,8 @@ pub struct RateLimitedClient {
 }
 
 enum ClientRequest {
-    Get(String, Sender<reqwest::Response>),
-    Execute(reqwest::Request, Sender<reqwest::Response>),
+    Get(String, Sender<reqwest::Result<reqwest::Response>>),
+    Execute(reqwest::Request, Sender<reqwest::Result<reqwest::Response>>),
 }
 
 impl RateLimitedClient {
@@ -82,25 +82,29 @@ impl RateLimitedClient {
         Self { receiver: tx }
     }
 
-    async fn handle_get(client: reqwest::Client, tx: Sender<reqwest::Response>, url: String) {
+    async fn handle_get(
+        client: reqwest::Client,
+        tx: Sender<reqwest::Result<reqwest::Response>>,
+        url: String,
+    ) {
         tokio::spawn(async move {
-            let response = client.get(&url).send().await.unwrap();
+            let response = client.get(&url).send().await;
             tx.send(response).await.unwrap();
         });
     }
 
     async fn handle_execute(
         client: reqwest::Client,
-        tx: Sender<reqwest::Response>,
+        tx: Sender<reqwest::Result<reqwest::Response>>,
         request: reqwest::Request,
     ) {
         tokio::spawn(async move {
-            let response = client.execute(request).await.unwrap();
+            let response = client.execute(request).await;
             tx.send(response).await.unwrap();
         });
     }
 
-    pub async fn get(&self, url: &str) -> Result<reqwest::Response, reqwest::Error> {
+    pub async fn get(&self, url: &str) -> reqwest::Result<reqwest::Response> {
         debug!("getting {}", url);
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
@@ -108,20 +112,20 @@ impl RateLimitedClient {
             .await
             .map_err(|e| error!("{:?}", e))
             .unwrap();
-        Ok(rx.recv().await.unwrap())
+        rx.recv().await.unwrap()
     }
 
     pub async fn execute(
         &self,
         request: reqwest::Request,
-    ) -> Result<reqwest::Response, reqwest::Error> {
+    ) -> reqwest::Result<reqwest::Response> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         self.receiver
             .send(ClientRequest::Execute(request, tx))
             .await
             .map_err(|e| error!("{:?}", e))
             .unwrap();
-        Ok(rx.recv().await.unwrap())
+        rx.recv().await.unwrap()
     }
 }
 
