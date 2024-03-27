@@ -90,7 +90,7 @@ impl Client {
     pub async fn get_with_retry(
         &self,
         endpoint: &Endpoint,
-        https: bool,
+        mut https: bool,
     ) -> Result<ClientResponse, Error> {
         let mut retries: usize = 0;
         loop {
@@ -98,11 +98,23 @@ impl Client {
             match self.get(endpoint, https).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
+
+                    // If the error is a 404, return it
                     if let Error::StatusCode(ref code) = e {
                         if code == "404" {
                             return Err(e);
                         }
                     }
+
+                    // If the error is a 301, retry with the other protocol
+                    if let Error::MovedPermanently = e {
+                        if retries > 1 {
+                            return Err(e);
+                        }
+                        https = !https;
+                    }
+
+                    // Else, log the error and retry
                     error!(
                         "Error getting {}: {}, retrying {} more times",
                         endpoint,
@@ -133,6 +145,10 @@ impl Client {
             reqwest::StatusCode::NOT_MODIFIED => {
                 debug!("request: {} status: NOT_MODIFIED", endpoint);
                 Ok(self.cache.last_response(endpoint.clone()).await.unwrap())
+            }
+            reqwest::StatusCode::MOVED_PERMANENTLY => {
+                debug!("request: {} status: MOVED_PERMANENTLY", endpoint);
+                Err(Error::MovedPermanently)
             }
             _ => {
                 error!("request {} status: {}", endpoint, resp.status());

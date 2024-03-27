@@ -18,4 +18,7 @@ pub enum Error {
     #[error("No cached response")]
     NoCachedResponse,
 
+    #[error("Moved permanently")]
+    MovedPermanently,
+
 }
