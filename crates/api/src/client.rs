@@ -92,16 +92,22 @@ impl Client {
         endpoint: &Endpoint,
         https: bool,
     ) -> Result<ClientResponse, Error> {
-        let mut retries = 0;
+        let mut retries: usize = 0;
         loop {
+            tokio::time::sleep(std::time::Duration::from_secs(retries as u64)).await;
             match self.get(endpoint, https).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
+                    if let Error::StatusCode(ref code) = e {
+                        if code == "404" {
+                            return Err(e);
+                        }
+                    }
                     error!(
                         "Error getting {}: {}, retrying {} more times",
-                        (self.cfg.max_retries() - retries),
                         endpoint,
-                        e
+                        e,
+                        (self.cfg.max_retries() - retries),
                     );
                     retries += 1;
                     if retries > self.cfg.max_retries() {
@@ -136,7 +142,10 @@ impl Client {
     }
 
     pub async fn get_boards(&self) -> Result<Arc<Vec<Board>>, Error> {
-        match self.get_with_retry(&Endpoint::Boards, self.cfg.use_https()).await? {
+        match self
+            .get_with_retry(&Endpoint::Boards, self.cfg.use_https())
+            .await?
+        {
             ClientResponse::Boards(boards) => Ok(boards),
             _ => Err(Error::InvalidResponse),
         }
@@ -170,21 +179,27 @@ impl Client {
     }
 
     pub async fn get_index(&self, board: &str, page: i32) -> Result<Arc<Index>, Error> {
-        self.get_with_retry(&Endpoint::Index(board.to_string(), page), self.cfg.use_https())
-            .await
-            .map(|x| match x {
-                ClientResponse::Index(index) => index,
-                _ => panic!("Invalid response"),
-            })
+        self.get_with_retry(
+            &Endpoint::Index(board.to_string(), page),
+            self.cfg.use_https(),
+        )
+        .await
+        .map(|x| match x {
+            ClientResponse::Index(index) => index,
+            _ => panic!("Invalid response"),
+        })
     }
 
     pub async fn get_thread(&self, board: &str, no: i32) -> Result<Arc<Thread>, Error> {
-        self.get_with_retry(&Endpoint::Thread(board.to_string(), no), self.cfg.use_https())
-            .await
-            .map(|x| match x {
-                ClientResponse::Thread(thread) => thread,
-                _ => panic!("Invalid response"),
-            })
+        self.get_with_retry(
+            &Endpoint::Thread(board.to_string(), no),
+            self.cfg.use_https(),
+        )
+        .await
+        .map(|x| match x {
+            ClientResponse::Thread(thread) => thread,
+            _ => panic!("Invalid response"),
+        })
     }
 }
 
