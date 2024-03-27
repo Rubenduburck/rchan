@@ -106,14 +106,6 @@ impl Client {
                         }
                     }
 
-                    // If the error is a 301, retry with the other protocol
-                    if let Error::MovedPermanently = e {
-                        if retries > 1 {
-                            return Err(e);
-                        }
-                        https = !https;
-                    }
-
                     // Else, log the error and retry
                     error!(
                         "Error getting {}: {}, retrying {} more times",
