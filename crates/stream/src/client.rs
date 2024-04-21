@@ -41,7 +41,7 @@ impl Stream {
         }
     }
 
-    pub async fn subscribe(&mut self, sub: Subscription) -> Result<(), Error> {
+    pub async fn subscribe(&mut self, sub: &Subscription) -> Result<(), Error> {
         if self.workers.contains_key(&sub.board_name) {
             return Err(Error::AlreadySubscribed(
                 "Board already subscribed".to_string(),
@@ -50,7 +50,7 @@ impl Stream {
         let (events_tx, mut events_rx) = tokio::sync::mpsc::channel(100);
         let board_name = sub.board_name.clone();
         let board_data = self.get_board_data(&board_name).await?;
-        let kill_worker = Self::start_worker(self.api.clone(), sub, board_data, events_tx);
+        let kill_worker = Self::start_worker(self.api.clone(), sub.clone(), board_data, events_tx);
         let events_tx = self.events_tx.clone();
         self.workers.insert(board_name, kill_worker);
         tokio::spawn(async move {
@@ -120,11 +120,11 @@ mod tests {
 
         let mut stream = Stream::new(None, events_tx);
         stream
-            .subscribe(Subscription::new("g".to_string(), None))
+            .subscribe(&Subscription::new("g".to_string(), None))
             .await
             .unwrap();
         stream
-            .subscribe(Subscription::new("v".to_string(), None))
+            .subscribe(&Subscription::new("v".to_string(), None))
             .await
             .unwrap();
 

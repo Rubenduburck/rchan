@@ -90,7 +90,7 @@ impl Client {
     pub async fn get_with_retry(
         &self,
         endpoint: &Endpoint,
-        mut https: bool,
+        https: bool,
     ) -> Result<ClientResponse, Error> {
         let mut retries: usize = 0;
         loop {
@@ -237,7 +237,7 @@ mod tests {
         let client_0 = Client::default();
         let client_1 = client_0.clone();
         let client_2 = client_0.clone();
-        let clients = vec![client_0, client_1, client_2];
+        let clients = [client_0, client_1, client_2];
         let now = SystemTime::now();
         for (i, endpoint) in endpoints.enumerate() {
             debug!("Sending request to {}", endpoint.url(false));
