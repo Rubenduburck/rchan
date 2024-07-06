@@ -59,6 +59,10 @@ impl Post {
         }
     }
 
+    pub fn clean_title(&self) -> Option<String> {
+        self.sub.as_ref().map(|s| crate::utils::remove_html(s).unwrap())
+    }
+
     pub fn post_no(&self) -> i32 {
         self.no
     }
